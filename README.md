@@ -2,18 +2,59 @@
 
 Memora is a deterministic local memory system for agent runtimes.
 
-First-version scope:
+It provides:
 
 - Markdown memory files with YAML frontmatter
-- JSON session files
-- Deterministic memory policy
-- Keyword retrieval
+- JSON session history
+- Working memory state
+- Deterministic safety policy
+- Keyword retrieval and scoring
 - Prompt formatting
-- CLI for debugging
+- Lifecycle cleanup
+- A thin CLI for debugging
 
-## Development
+## Install for development
+
+```bash
+pip install -e .[dev]
+```
+
+## Run tests
 
 ```bash
 pytest
-python -m memora --help
 ```
+
+## CLI quickstart
+
+```bash
+python -m memora --root .memora init
+python -m memora --root .memora save --type user --name language --description "用户偏好中文。" --content "用户偏好使用中文回答。"
+python -m memora --root .memora list
+python -m memora --root .memora search "中文回答"
+python -m memora --root .memora show language
+python -m memora --root .memora session append session_1 --role user --content "hello"
+python -m memora --root .memora session show session_1
+python -m memora --root .memora clean
+```
+
+## Python usage
+
+```python
+from memora.manager import MemoryManager
+
+manager = MemoryManager()
+manager.init_storage()
+manager.save_memory(
+    memory_type="user",
+    name="language",
+    description="用户偏好中文。",
+    content="用户偏好使用中文回答。",
+)
+results = manager.retrieve_memory("中文回答")
+print(manager.format_memories_for_prompt(results=results))
+```
+
+## MVP boundaries
+
+This version does not include LLM-based extraction, embeddings, vector databases, SQL backends, web UI, or hosted multi-tenant service.
