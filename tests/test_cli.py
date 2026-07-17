@@ -206,3 +206,89 @@ def test_export_import_verify_rebuild_and_backup_commands(tmp_path: Path):
     assert backed_up.returncode == 0
     assert "backed up 1 memories" in backed_up.stdout
     assert backup_path.exists()
+
+
+def test_remember_command_creates_and_updates_candidate_memory(tmp_path: Path):
+    root = tmp_path / ".memora"
+
+    created = run_cli(
+        root,
+        "remember",
+        "--type",
+        "user",
+        "--name",
+        "language",
+        "--description",
+        "用户偏好中文。",
+        "--content",
+        "用户偏好使用中文回答。",
+        "--session",
+        "session_1",
+        "--tag",
+        "preference",
+    )
+    updated = run_cli(
+        root,
+        "remember",
+        "--type",
+        "user",
+        "--name",
+        "language",
+        "--description",
+        "updated desc",
+        "--content",
+        "updated content",
+    )
+    shown = run_cli(root, "show", "language")
+
+    assert created.returncode == 0
+    assert "created" in created.stdout
+    assert "accepted" in created.stdout
+    assert updated.returncode == 0
+    assert "updated" in updated.stdout
+    assert "duplicate_or_same_key" in updated.stdout
+    assert "updated content" in shown.stdout
+
+
+def test_remember_command_rejects_secret_as_normal_policy_result(tmp_path: Path):
+    root = tmp_path / ".memora"
+
+    result = run_cli(
+        root,
+        "remember",
+        "--type",
+        "user",
+        "--name",
+        "secret",
+        "--description",
+        "secret",
+        "--content",
+        "api_key = sk-abcdef123456",
+    )
+    listed = run_cli(root, "list", "--all")
+
+    assert result.returncode == 0
+    assert "rejected" in result.stdout
+    assert "contains_secret" in result.stdout
+    assert "secret" not in listed.stdout
+
+
+def test_remember_command_invalid_type_reports_cli_error(tmp_path: Path):
+    root = tmp_path / ".memora"
+
+    result = run_cli(
+        root,
+        "remember",
+        "--type",
+        "invalid",
+        "--name",
+        "bad",
+        "--description",
+        "bad",
+        "--content",
+        "bad",
+    )
+
+    assert result.returncode == 1
+    assert "error:" in result.stderr
+    assert "memory type" in result.stderr

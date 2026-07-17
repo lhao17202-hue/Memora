@@ -8,7 +8,7 @@ import sys
 from .config import MemoryConfig
 from .errors import MemoraError
 from .manager import MemoryManager
-from .schema import SessionMessage
+from .schema import MemoryCandidate, SessionMessage
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -26,6 +26,17 @@ def build_parser() -> argparse.ArgumentParser:
     save_parser.add_argument("--name", required=True)
     save_parser.add_argument("--description", required=True)
     save_parser.add_argument("--content", required=True)
+
+    remember_parser = subparsers.add_parser("remember", help="Evaluate and write an agent-extracted candidate memory.")
+    remember_parser.add_argument("--type", required=True)
+    remember_parser.add_argument("--name", required=True)
+    remember_parser.add_argument("--description", required=True)
+    remember_parser.add_argument("--content", required=True)
+    remember_parser.add_argument("--source")
+    remember_parser.add_argument("--session", dest="session_id")
+    remember_parser.add_argument("--tag", action="append", dest="tags")
+    remember_parser.add_argument("--weight", type=int, default=5)
+    remember_parser.add_argument("--confidence", type=float, default=1.0)
 
     list_parser = subparsers.add_parser("list", help="List memories.")
     list_parser.add_argument("--archived", action="store_true", help="List archived memories only.")
@@ -99,6 +110,16 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
 
+def _print_write_result(result) -> None:
+    if result.action in {"created", "updated"} and result.memory is not None:
+        print(f"{result.action} {result.memory.id} {result.memory.name} {result.reason}")
+        return
+    if result.action == "requires_confirmation":
+        print(f"requires_confirmation {result.target_memory_id} {result.reason}")
+        return
+    print(f"{result.action} {result.reason}")
+
+
 def _run_command(args, manager: MemoryManager, parser: argparse.ArgumentParser) -> int:
     if args.command == "init":
         manager.init_storage()
@@ -108,6 +129,32 @@ def _run_command(args, manager: MemoryManager, parser: argparse.ArgumentParser) 
     if args.command == "save":
         item = manager.save_memory(args.type, args.content, args.description, name=args.name)
         print(f"saved {item.id} {item.name}")
+        return 0
+
+    if args.command == "remember":
+        tags = list(args.tags or [])
+        source = args.source
+        if args.session_id is not None:
+            session_tag = f"session:{args.session_id}"
+            if session_tag not in tags:
+                tags.append(session_tag)
+            if source is None:
+                source = "session_extraction"
+        if source is None:
+            source = "runtime_extraction"
+        candidate = MemoryCandidate(
+            action="create",
+            name=args.name,
+            description=args.description,
+            type=args.type,
+            content=args.content,
+            tags=tags,
+            source=source,
+            weight=args.weight,
+            confidence=args.confidence,
+        )
+        result = manager.remember_candidate(candidate)
+        _print_write_result(result)
         return 0
 
     if args.command == "list":
