@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from memora.config import MemoryConfig
+from memora.errors import MemoryPolicyError, MemoryValidationError
 from memora.manager import MemoryManager
 from memora.schema import SessionMessage
 
@@ -39,10 +40,21 @@ def test_policy_rejects_unsafe_save(tmp_path: Path):
             description="secret",
             name="secret",
         )
-    except ValueError as exc:
+    except MemoryPolicyError as exc:
         assert "contains_secret" in str(exc)
     else:
-        raise AssertionError("expected ValueError")
+        raise AssertionError("expected MemoryPolicyError")
+
+
+def test_save_memory_rejects_invalid_memory_type(tmp_path: Path):
+    manager = manager_for(tmp_path)
+
+    try:
+        manager.save_memory("invalid", "content", "description", name="bad")
+    except MemoryValidationError as exc:
+        assert "memory type" in str(exc)
+    else:
+        raise AssertionError("expected MemoryValidationError")
 
 
 def test_session_append_and_get_messages(tmp_path: Path):

@@ -5,11 +5,21 @@ from __future__ import annotations
 import uuid
 
 from .config import MemoryConfig
+from .errors import MemoryPolicyError
 from .formatter import MemoryFormatter
 from .lifecycle import LifecycleManager
 from .policy import MemoryPolicy
 from .retriever import MemoryRetriever
-from .schema import MemoryCandidate, MemoryItem, MemoryQuery, MemorySearchResult, SessionMessage
+from .schema import (
+    MemoryCandidate,
+    MemoryItem,
+    MemoryQuery,
+    MemorySearchResult,
+    SessionMessage,
+    validate_memory_candidate,
+    validate_memory_item,
+    validate_memory_query,
+)
 from .session import SessionService
 from .stores import FileMemoryStore, FileSessionStore
 from .utils import now_utc, slugify
@@ -58,11 +68,12 @@ class MemoryManager:
             confidence=confidence,
             weight=weight,
         )
+        validate_memory_candidate(candidate)
         decision = self.policy.evaluate(candidate, self.memory_store.list_memories(include_archived=False))
         if decision.action == "reject":
-            raise ValueError(f"memory rejected: {decision.reason}")
+            raise MemoryPolicyError(f"memory rejected: {decision.reason}")
         if decision.action == "ask_user":
-            raise ValueError(f"memory requires confirmation: {decision.reason}")
+            raise MemoryPolicyError(f"memory requires confirmation: {decision.reason}")
 
         now = now_utc()
         if decision.action == "update" and decision.target_memory_id:
@@ -76,6 +87,7 @@ class MemoryManager:
             existing.confidence = confidence
             existing.source = source
             existing.updated_at = now
+            validate_memory_item(existing)
             return self.memory_store.update_memory(existing)
 
         item = MemoryItem(
@@ -94,6 +106,7 @@ class MemoryManager:
             created_at=now,
             updated_at=now,
         )
+        validate_memory_item(item)
         return self.memory_store.save_memory(item)
 
     def retrieve_memory(
@@ -127,6 +140,7 @@ class MemoryManager:
             include_archived=include_archived,
             include_knowledge=include_knowledge,
         )
+        validate_memory_query(memory_query)
         return self.retriever.retrieve(memories, memory_query)
 
     def mark_memories_used(self, results: list[MemorySearchResult]) -> None:
