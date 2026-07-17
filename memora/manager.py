@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 
 from .config import MemoryConfig
 from .errors import MemoryNotFoundError, MemoryPolicyError
 from .formatter import MemoryFormatter
 from .lifecycle import LifecycleManager
 from .policy import MemoryPolicy
+from .portable import backup_memories, export_memories, import_memories, rebuild_index, verify_memories
 from .retriever import MemoryRetriever
 from .schema import (
     MemoryCandidate,
@@ -180,6 +182,21 @@ class MemoryManager:
             self.memory_store.hard_delete_memory(identifier)
             return
         self.memory_store.set_memory_status(identifier, "deleted")
+
+    def export_memories(self, path: str | Path) -> dict:
+        return export_memories(self.memory_store, path)
+
+    def import_memories(self, path: str | Path) -> dict:
+        return import_memories(self.memory_store, path)
+
+    def verify_memories(self) -> dict:
+        return verify_memories(self.memory_store)
+
+    def rebuild_index(self) -> None:
+        rebuild_index(self.memory_store)
+
+    def backup(self, path: str | Path) -> dict:
+        return backup_memories(self.memory_store, path)
 
     def mark_memories_used(self, results: list[MemorySearchResult]) -> None:
         now = now_utc()
