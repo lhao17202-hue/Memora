@@ -32,6 +32,24 @@ def build_parser() -> argparse.ArgumentParser:
     show_parser = subparsers.add_parser("show", help="Show one memory.")
     show_parser.add_argument("identifier")
 
+    update_parser = subparsers.add_parser("update", help="Update one memory.")
+    update_parser.add_argument("identifier")
+    update_parser.add_argument("--description")
+    update_parser.add_argument("--content")
+    update_parser.add_argument("--tag", action="append", dest="tags")
+    update_parser.add_argument("--weight", type=int)
+    update_parser.add_argument("--confidence", type=float)
+
+    archive_parser = subparsers.add_parser("archive", help="Archive one memory.")
+    archive_parser.add_argument("identifier")
+
+    restore_parser = subparsers.add_parser("restore", help="Restore one archived or deleted memory.")
+    restore_parser.add_argument("identifier")
+
+    delete_parser = subparsers.add_parser("delete", help="Delete one memory.")
+    delete_parser.add_argument("identifier")
+    delete_parser.add_argument("--hard", action="store_true")
+
     search_parser = subparsers.add_parser("search", help="Search memories.")
     search_parser.add_argument("query")
 
@@ -89,6 +107,36 @@ def _run_command(args, manager: MemoryManager, parser: argparse.ArgumentParser) 
         print(f"type: {item.type}")
         print(f"description: {item.description}")
         print(item.content)
+        return 0
+
+    if args.command == "update":
+        item = manager.update_memory(
+            args.identifier,
+            description=args.description,
+            content=args.content,
+            tags=args.tags,
+            weight=args.weight,
+            confidence=args.confidence,
+        )
+        print(f"updated {item.id} {item.name}")
+        return 0
+
+    if args.command == "archive":
+        item = manager.archive_memory(args.identifier)
+        print(f"archived {item.id} {item.name}")
+        return 0
+
+    if args.command == "restore":
+        item = manager.restore_memory(args.identifier)
+        print(f"restored {item.id} {item.name}")
+        return 0
+
+    if args.command == "delete":
+        manager.delete_memory(args.identifier, hard=args.hard)
+        if args.hard:
+            print(f"hard deleted {args.identifier}")
+        else:
+            print(f"deleted {args.identifier}")
         return 0
 
     if args.command == "search":

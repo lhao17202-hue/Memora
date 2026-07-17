@@ -90,3 +90,69 @@ def test_save_secret_reports_clear_error(tmp_path: Path):
     assert result.returncode == 1
     assert "error:" in result.stderr
     assert "contains_secret" in result.stderr
+
+
+def save_language(root: Path):
+    return run_cli(
+        root,
+        "save",
+        "--type",
+        "user",
+        "--name",
+        "language",
+        "--description",
+        "用户偏好中文。",
+        "--content",
+        "用户偏好使用中文回答。",
+    )
+
+
+def test_update_command_changes_memory(tmp_path: Path):
+    root = tmp_path / ".memora"
+    assert save_language(root).returncode == 0
+
+    updated = run_cli(root, "update", "language", "--description", "updated desc", "--content", "updated content", "--tag", "language", "--weight", "8", "--confidence", "0.7")
+    shown = run_cli(root, "show", "language")
+
+    assert updated.returncode == 0
+    assert "updated" in updated.stdout
+    assert "updated desc" in shown.stdout
+    assert "updated content" in shown.stdout
+
+
+def test_archive_and_restore_commands(tmp_path: Path):
+    root = tmp_path / ".memora"
+    assert save_language(root).returncode == 0
+
+    archived = run_cli(root, "archive", "language")
+    listed = run_cli(root, "list")
+    archived_list = run_cli(root, "list", "--archived")
+    restored = run_cli(root, "restore", "language")
+    listed_again = run_cli(root, "list")
+
+    assert archived.returncode == 0
+    assert "archived" in archived.stdout
+    assert "language" not in listed.stdout
+    assert "language" in archived_list.stdout
+    assert restored.returncode == 0
+    assert "restored" in restored.stdout
+    assert "language" in listed_again.stdout
+
+
+def test_delete_command_marks_deleted_and_hard_delete_removes(tmp_path: Path):
+    root = tmp_path / ".memora"
+    assert save_language(root).returncode == 0
+
+    deleted = run_cli(root, "delete", "language")
+    listed = run_cli(root, "list")
+    all_list = run_cli(root, "list", "--all")
+    hard_deleted = run_cli(root, "delete", "language", "--hard")
+    all_after_hard_delete = run_cli(root, "list", "--all")
+
+    assert deleted.returncode == 0
+    assert "deleted" in deleted.stdout
+    assert "language" not in listed.stdout
+    assert "language" in all_list.stdout
+    assert hard_deleted.returncode == 0
+    assert "hard deleted" in hard_deleted.stdout
+    assert "language" not in all_after_hard_delete.stdout
