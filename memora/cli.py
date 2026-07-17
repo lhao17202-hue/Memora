@@ -52,6 +52,18 @@ def build_parser() -> argparse.ArgumentParser:
     delete_parser.add_argument("identifier")
     delete_parser.add_argument("--hard", action="store_true")
 
+    export_parser = subparsers.add_parser("export", help="Export memories to JSON.")
+    export_parser.add_argument("path")
+
+    import_parser = subparsers.add_parser("import", help="Import memories from JSON.")
+    import_parser.add_argument("path")
+
+    subparsers.add_parser("verify", help="Verify memory store health.")
+    subparsers.add_parser("rebuild-index", help="Rebuild the memory index.")
+
+    backup_parser = subparsers.add_parser("backup", help="Back up memories to JSON.")
+    backup_parser.add_argument("path")
+
     search_parser = subparsers.add_parser("search", help="Search memories.")
     search_parser.add_argument("query")
     search_parser.add_argument("--type", action="append", dest="memory_types")
@@ -148,6 +160,33 @@ def _run_command(args, manager: MemoryManager, parser: argparse.ArgumentParser) 
             print(f"hard deleted {args.identifier}")
         else:
             print(f"deleted {args.identifier}")
+        return 0
+
+    if args.command == "export":
+        report = manager.export_memories(args.path)
+        print(f"exported {report['exported']} memories to {args.path}")
+        return 0
+
+    if args.command == "import":
+        report = manager.import_memories(args.path)
+        print(f"imported {report['imported']} skipped {report['skipped']} errors {len(report['errors'])}")
+        return 0
+
+    if args.command == "verify":
+        report = manager.verify_memories()
+        print(f"verified {report['checked']} memories index_ok={report['index_ok']} errors={len(report['errors'])}")
+        for error in report["errors"]:
+            print(f"error: {error}")
+        return 0
+
+    if args.command == "rebuild-index":
+        manager.rebuild_index()
+        print("rebuilt index")
+        return 0
+
+    if args.command == "backup":
+        report = manager.backup(args.path)
+        print(f"backed up {report['exported']} memories to {args.path}")
         return 0
 
     if args.command == "search":

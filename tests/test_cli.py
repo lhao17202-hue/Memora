@@ -169,3 +169,40 @@ def test_search_filters_type_tag_and_top_k(tmp_path: Path):
     assert result.returncode == 0
     assert "language" in result.stdout
     assert "project-language" not in result.stdout
+
+
+def test_export_import_verify_rebuild_and_backup_commands(tmp_path: Path):
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    export_path = tmp_path / "memories.json"
+    backup_path = tmp_path / "backup.json"
+
+    assert save_language(source).returncode == 0
+
+    exported = run_cli(source, "export", str(export_path))
+    assert exported.returncode == 0
+    assert "exported 1 memories" in exported.stdout
+    assert export_path.exists()
+
+    imported = run_cli(target, "import", str(export_path))
+    assert imported.returncode == 0
+    assert "imported 1 skipped 0 errors 0" in imported.stdout
+
+    duplicate = run_cli(target, "import", str(export_path))
+    assert duplicate.returncode == 0
+    assert "imported 0 skipped 1 errors 0" in duplicate.stdout
+
+    verified = run_cli(target, "verify")
+    assert verified.returncode == 0
+    assert "verified 1 memories" in verified.stdout
+    assert "index_ok=True" in verified.stdout
+    assert "errors=0" in verified.stdout
+
+    rebuilt = run_cli(target, "rebuild-index")
+    assert rebuilt.returncode == 0
+    assert "rebuilt index" in rebuilt.stdout
+
+    backed_up = run_cli(target, "backup", str(backup_path))
+    assert backed_up.returncode == 0
+    assert "backed up 1 memories" in backed_up.stdout
+    assert backup_path.exists()
