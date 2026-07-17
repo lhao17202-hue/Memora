@@ -40,6 +40,8 @@ class MemoryRetriever:
         return results[: query.top_k]
 
     def score(self, memory: MemoryItem, query: MemoryQuery) -> MemorySearchResult | None:
+        if memory.status == "deleted":
+            return None
         if memory.status != "active" and not query.include_archived:
             return None
         if query.memory_types and memory.type not in query.memory_types:

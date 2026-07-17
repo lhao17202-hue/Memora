@@ -156,3 +156,16 @@ def test_delete_command_marks_deleted_and_hard_delete_removes(tmp_path: Path):
     assert hard_deleted.returncode == 0
     assert "hard deleted" in hard_deleted.stdout
     assert "language" not in all_after_hard_delete.stdout
+
+
+def test_search_filters_type_tag_and_top_k(tmp_path: Path):
+    root = tmp_path / ".memora"
+    assert run_cli(root, "save", "--type", "user", "--name", "language", "--description", "用户偏好中文。", "--content", "用户偏好中文回答。").returncode == 0
+    assert run_cli(root, "save", "--type", "project", "--name", "project-language", "--description", "项目使用中文。", "--content", "项目中文文档。").returncode == 0
+    assert run_cli(root, "update", "language", "--tag", "language").returncode == 0
+
+    result = run_cli(root, "search", "中文", "--type", "user", "--tag", "language", "--top-k", "1")
+
+    assert result.returncode == 0
+    assert "language" in result.stdout
+    assert "project-language" not in result.stdout

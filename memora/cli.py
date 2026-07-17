@@ -27,7 +27,9 @@ def build_parser() -> argparse.ArgumentParser:
     save_parser.add_argument("--description", required=True)
     save_parser.add_argument("--content", required=True)
 
-    subparsers.add_parser("list", help="List memories.")
+    list_parser = subparsers.add_parser("list", help="List memories.")
+    list_parser.add_argument("--archived", action="store_true", help="List archived memories only.")
+    list_parser.add_argument("--all", action="store_true", help="List active, archived, and deleted memories.")
 
     show_parser = subparsers.add_parser("show", help="Show one memory.")
     show_parser.add_argument("identifier")
@@ -52,6 +54,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     search_parser = subparsers.add_parser("search", help="Search memories.")
     search_parser.add_argument("query")
+    search_parser.add_argument("--type", action="append", dest="memory_types")
+    search_parser.add_argument("--tag", action="append", dest="tags")
+    search_parser.add_argument("--top-k", type=int)
+    search_parser.add_argument("--archived", action="store_true", help="Include archived memories.")
 
     subparsers.add_parser("clean", help="Archive expired or cold memories.")
 
@@ -93,8 +99,13 @@ def _run_command(args, manager: MemoryManager, parser: argparse.ArgumentParser) 
         return 0
 
     if args.command == "list":
-        for item in manager.memory_store.list_memories():
-            print(f"{item.id}\t{item.name}\t{item.type}\t{item.description}")
+        items = manager.memory_store.list_memories(include_archived=args.archived or args.all)
+        if args.archived and not args.all:
+            items = [item for item in items if item.status == "archived"]
+        if not args.all:
+            items = [item for item in items if item.status == "active" or (args.archived and item.status == "archived")]
+        for item in items:
+            print(f"{item.id}\t{item.name}\t{item.type}\t{item.status}\t{item.description}")
         return 0
 
     if args.command == "show":
@@ -140,7 +151,13 @@ def _run_command(args, manager: MemoryManager, parser: argparse.ArgumentParser) 
         return 0
 
     if args.command == "search":
-        results = manager.retrieve_memory(args.query)
+        results = manager.retrieve_memory(
+            args.query,
+            memory_types=args.memory_types,
+            tags=args.tags,
+            top_k=args.top_k,
+            include_archived=args.archived,
+        )
         for result in results:
             print(f"{result.final_score:.3f}\t{result.memory.id}\t{result.memory.name}\t{result.memory.description}")
         return 0
