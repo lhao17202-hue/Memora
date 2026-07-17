@@ -71,3 +71,52 @@ def test_constructor_rejects_manager_and_config_together(tmp_path: Path):
 
     with pytest.raises(ValueError, match="manager and config cannot both be provided"):
         MemoryRuntime(manager=manager, config=MemoryConfig(root_dir=tmp_path / "other"))
+
+
+def test_remember_extracted_creates_memory(tmp_path: Path):
+    runtime = make_runtime(tmp_path)
+
+    result = runtime.remember_extracted(
+        memory_type="user",
+        name="language",
+        description="用户偏好中文。",
+        content="用户偏好使用中文回答。",
+    )
+
+    assert result.action == "created"
+    assert result.memory is not None
+    assert result.memory.name == "language"
+    assert result.memory.source == "runtime_extraction"
+
+
+def test_remember_extracted_with_session_id_records_session_source(tmp_path: Path):
+    runtime = make_runtime(tmp_path)
+
+    result = runtime.remember_extracted(
+        memory_type="user",
+        name="language",
+        description="用户偏好中文。",
+        content="用户偏好使用中文回答。",
+        session_id="session_1",
+        tags=["preference"],
+    )
+
+    assert result.action == "created"
+    assert result.memory is not None
+    assert result.memory.source == "session_extraction"
+    assert result.memory.tags == ["preference", "session:session_1"]
+
+
+def test_remember_extracted_rejects_secret_without_policy_exception(tmp_path: Path):
+    runtime = make_runtime(tmp_path)
+
+    result = runtime.remember_extracted(
+        memory_type="user",
+        name="secret",
+        description="secret",
+        content="api_key = sk-abcdef123456",
+    )
+
+    assert result.action == "rejected"
+    assert result.reason == "contains_secret"
+    assert result.memory is None

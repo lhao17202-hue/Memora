@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from .config import MemoryConfig
 from .manager import MemoryManager
-from .schema import MemoryItem, MemorySearchResult, SessionMessage
+from .schema import MemoryCandidate, MemoryItem, MemorySearchResult, MemoryWriteResult, SessionMessage
 
 
 class MemoryRuntime:
@@ -44,6 +44,43 @@ class MemoryRuntime:
             workspace_id=workspace_id,
             source="runtime",
         )
+
+    def remember_extracted(
+        self,
+        memory_type: str,
+        name: str,
+        description: str,
+        content: str,
+        user_id: str = "default",
+        project_id: str | None = None,
+        workspace_id: str | None = None,
+        session_id: str | None = None,
+        tags: list[str] | None = None,
+        weight: int = 5,
+        confidence: float = 1.0,
+    ) -> MemoryWriteResult:
+        candidate_tags = list(tags or [])
+        source = "runtime_extraction"
+        if session_id is not None:
+            source = "session_extraction"
+            session_tag = f"session:{session_id}"
+            if session_tag not in candidate_tags:
+                candidate_tags.append(session_tag)
+        candidate = MemoryCandidate(
+            action="create",
+            name=name,
+            description=description,
+            type=memory_type,
+            content=content,
+            user_id=user_id,
+            project_id=project_id,
+            workspace_id=workspace_id,
+            tags=candidate_tags,
+            source=source,
+            confidence=confidence,
+            weight=weight,
+        )
+        return self.manager.remember_candidate(candidate)
 
     def mark_context_used(self, results: list[MemorySearchResult]) -> None:
         self.manager.mark_memories_used(results)
