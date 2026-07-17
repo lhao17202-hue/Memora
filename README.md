@@ -38,6 +38,15 @@ python -m memora --root .memora session show session_1
 python -m memora --root .memora clean
 ```
 
+## CLI error behavior
+
+Validation and policy failures are reported to stderr and return a non-zero exit code:
+
+```bash
+python -m memora --root .memora save --type user --name secret --description "secret" --content "api_key = sk-abcdef123456"
+# stderr: error: memory rejected: contains_secret
+```
+
 ## Python usage
 
 ```python
