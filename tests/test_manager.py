@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from memora.config import MemoryConfig
-from memora.errors import MemoryPolicyError, MemoryValidationError
+from memora.errors import MemoryNotFoundError, MemoryPolicyError, MemoryValidationError
 from memora.manager import MemoryManager
 from memora.schema import SessionMessage
 
@@ -90,3 +90,69 @@ def test_clean_expired_memory_archives_expired(tmp_path: Path):
 
     assert report["archived"] == 1
     assert manager.retrieve_memory(query="old") == []
+
+
+def test_update_memory_changes_selected_fields(tmp_path: Path):
+    manager = manager_for(tmp_path)
+    manager.save_memory("user", "old content", "old desc", name="language", tags=["old"], weight=5)
+
+    updated = manager.update_memory(
+        "language",
+        description="new desc",
+        content="new content",
+        tags=["new"],
+        weight=8,
+        confidence=0.7,
+    )
+
+    assert updated.description == "new desc"
+    assert updated.content == "new content"
+    assert updated.tags == ["new"]
+    assert updated.weight == 8
+    assert updated.confidence == 0.7
+    assert updated.updated_at is not None
+
+
+def test_update_memory_missing_raises_not_found(tmp_path: Path):
+    manager = manager_for(tmp_path)
+
+    try:
+        manager.update_memory("missing", content="new")
+    except MemoryNotFoundError as exc:
+        assert "missing" in str(exc)
+    else:
+        raise AssertionError("expected MemoryNotFoundError")
+
+
+def test_archive_and_restore_memory_control_retrieval(tmp_path: Path):
+    manager = manager_for(tmp_path)
+    manager.save_memory("user", "用户偏好中文。", "用户偏好中文。", name="language")
+
+    archived = manager.archive_memory("language")
+    assert archived.status == "archived"
+    assert manager.retrieve_memory("中文") == []
+
+    restored = manager.restore_memory("language")
+    assert restored.status == "active"
+    assert len(manager.retrieve_memory("中文")) == 1
+
+
+def test_delete_memory_marks_deleted_by_default(tmp_path: Path):
+    manager = manager_for(tmp_path)
+    manager.save_memory("user", "用户偏好中文。", "用户偏好中文。", name="language")
+
+    manager.delete_memory("language")
+    deleted = manager.memory_store.get_memory("language")
+
+    assert deleted is not None
+    assert deleted.status == "deleted"
+    assert manager.retrieve_memory("中文") == []
+
+
+def test_delete_memory_hard_removes_file(tmp_path: Path):
+    manager = manager_for(tmp_path)
+    manager.save_memory("user", "用户偏好中文。", "用户偏好中文。", name="language")
+
+    manager.delete_memory("language", hard=True)
+
+    assert manager.memory_store.get_memory("language") is None

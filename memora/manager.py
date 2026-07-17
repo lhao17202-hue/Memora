@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 
 from .config import MemoryConfig
-from .errors import MemoryPolicyError
+from .errors import MemoryNotFoundError, MemoryPolicyError
 from .formatter import MemoryFormatter
 from .lifecycle import LifecycleManager
 from .policy import MemoryPolicy
@@ -142,6 +142,44 @@ class MemoryManager:
         )
         validate_memory_query(memory_query)
         return self.retriever.retrieve(memories, memory_query)
+
+    def update_memory(
+        self,
+        identifier: str,
+        description: str | None = None,
+        content: str | None = None,
+        tags: list[str] | None = None,
+        weight: int | None = None,
+        confidence: float | None = None,
+    ) -> MemoryItem:
+        memory = self.memory_store.get_memory(identifier)
+        if memory is None:
+            raise MemoryNotFoundError(f"memory not found: {identifier}")
+        if description is not None:
+            memory.description = description
+        if content is not None:
+            memory.content = content
+        if tags is not None:
+            memory.tags = tags
+        if weight is not None:
+            memory.weight = weight
+        if confidence is not None:
+            memory.confidence = confidence
+        memory.updated_at = now_utc()
+        validate_memory_item(memory)
+        return self.memory_store.update_memory(memory)
+
+    def archive_memory(self, identifier: str) -> MemoryItem:
+        return self.memory_store.set_memory_status(identifier, "archived")
+
+    def restore_memory(self, identifier: str) -> MemoryItem:
+        return self.memory_store.set_memory_status(identifier, "active")
+
+    def delete_memory(self, identifier: str, hard: bool = False) -> None:
+        if hard:
+            self.memory_store.hard_delete_memory(identifier)
+            return
+        self.memory_store.set_memory_status(identifier, "deleted")
 
     def mark_memories_used(self, results: list[MemorySearchResult]) -> None:
         now = now_utc()
