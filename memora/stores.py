@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from .config import MemoryConfig
-from .schema import MemoryItem, SessionMessage
+from .errors import MemoryValidationError
+from .schema import MemoryItem, SessionMessage, validate_memory_item, validate_session_message
 from .utils import dump_frontmatter, now_utc, parse_frontmatter, safe_json_load, safe_json_write, slugify
 
 
@@ -17,7 +18,12 @@ def _dt_to_text(value: datetime | None) -> str | None:
 
 
 def _dt_from_text(value: str | None) -> datetime | None:
-    return datetime.fromisoformat(value) if value else None
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise MemoryValidationError(f"invalid datetime value: {value}") from exc
 
 
 def _clean_dict(data: dict[str, Any]) -> dict[str, Any]:
@@ -37,6 +43,13 @@ def _clean_dict(data: dict[str, Any]) -> dict[str, Any]:
         else:
             cleaned[key] = value
     return cleaned
+
+
+def _validate_session_id(session_id: str) -> None:
+    if not isinstance(session_id, str) or not session_id.strip():
+        raise MemoryValidationError("session_id must be a non-empty string")
+    if "/" in session_id or "\\" in session_id or ".." in session_id:
+        raise MemoryValidationError("session_id must not contain path separators or '..'")
 
 
 class FileMemoryStore:
@@ -89,7 +102,7 @@ class FileMemoryStore:
     def _item_from_text(self, text: str) -> MemoryItem:
         frontmatter, body = parse_frontmatter(text)
         meta = frontmatter.get("metadata") or {}
-        return MemoryItem(
+        item = MemoryItem(
             id=str(meta.get("id") or ""),
             name=slugify(str(frontmatter.get("name") or "memory")),
             description=str(frontmatter.get("description") or ""),
@@ -111,6 +124,8 @@ class FileMemoryStore:
             supersedes=list(meta.get("supersedes") or []),
             related=list(meta.get("related") or []),
         )
+        validate_memory_item(item)
+        return item
 
     def save_memory(self, item: MemoryItem) -> MemoryItem:
         self.init_storage()
@@ -118,6 +133,7 @@ class FileMemoryStore:
         item.name = slugify(item.name)
         item.created_at = item.created_at or now
         item.updated_at = item.updated_at or now
+        validate_memory_item(item)
         self._path_for_name(item.name).write_text(self._item_to_text(item), encoding="utf-8")
         self.rebuild_index()
         return item
@@ -176,10 +192,12 @@ class FileSessionStore:
         self.sessions_dir.mkdir(parents=True, exist_ok=True)
 
     def _path(self, session_id: str) -> Path:
+        _validate_session_id(session_id)
         return self.sessions_dir / f"{session_id}.json"
 
     def save_session(self, session: dict[str, Any]) -> None:
         self.init_storage()
+        _validate_session_id(str(session["id"]))
         safe_json_write(self._path(str(session["id"])), _clean_dict(session))
 
     def load_session(self, user_id: str, session_id: str) -> dict[str, Any] | None:
@@ -190,6 +208,8 @@ class FileSessionStore:
         return session
 
     def append_message(self, user_id: str, session_id: str, message: SessionMessage) -> None:
+        _validate_session_id(session_id)
+        validate_session_message(message)
         session = self.load_session(user_id, session_id) or {
             "id": session_id,
             "user_id": user_id,

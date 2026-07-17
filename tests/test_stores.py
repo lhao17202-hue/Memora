@@ -1,6 +1,9 @@
 from pathlib import Path
 
+import pytest
+
 from memora.config import MemoryConfig
+from memora.errors import MemoryValidationError
 from memora.schema import MemoryItem, SessionMessage, WorkingMemoryState
 from memora.stores import FileMemoryStore, FileSessionStore
 
@@ -76,3 +79,41 @@ def test_session_store_save_load_append(tmp_path: Path):
     assert loaded["id"] == "session_1"
     assert loaded["history"][0]["role"] == "user"
     assert loaded["history"][0]["content"] == "hello"
+
+
+def test_memory_store_rejects_invalid_datetime_frontmatter(tmp_path: Path):
+    store = FileMemoryStore(MemoryConfig(root_dir=str(tmp_path / ".memora")))
+    store.init_storage()
+    path = store.memories_dir / "bad.md"
+    path.write_text(
+        "---\n"
+        "name: bad\n"
+        "description: bad datetime\n"
+        "metadata:\n"
+        "  id: mem_bad\n"
+        "  type: project\n"
+        "  status: active\n"
+        "  weight: 5\n"
+        "  confidence: 1.0\n"
+        "  created_at: not-a-date\n"
+        "---\n\n"
+        "content\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(MemoryValidationError, match="invalid datetime"):
+        store.list_memories()
+
+
+def test_session_store_rejects_invalid_session_id(tmp_path: Path):
+    store = FileSessionStore(MemoryConfig(root_dir=str(tmp_path / ".memora")))
+
+    with pytest.raises(MemoryValidationError, match="session_id"):
+        store.append_message("default", "../bad", SessionMessage(role="user", content="hello"))
+
+
+def test_session_store_rejects_invalid_message_role(tmp_path: Path):
+    store = FileSessionStore(MemoryConfig(root_dir=str(tmp_path / ".memora")))
+
+    with pytest.raises(MemoryValidationError, match="session role"):
+        store.append_message("default", "session_1", SessionMessage(role="bad", content="hello"))
