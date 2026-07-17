@@ -17,6 +17,7 @@ from .schema import (
     MemoryItem,
     MemoryQuery,
     MemorySearchResult,
+    MemoryWriteResult,
     SessionMessage,
     validate_memory_candidate,
     validate_memory_item,
@@ -41,6 +42,77 @@ class MemoryManager:
     def init_storage(self) -> None:
         self.memory_store.init_storage()
         self.session_store.init_storage()
+
+    def _write_result_from_decision(self, decision: MemoryCandidate, memory: MemoryItem | None = None) -> MemoryWriteResult:
+        if decision.action == "create":
+            action = "created"
+        elif decision.action == "update":
+            action = "updated"
+        elif decision.action == "reject":
+            action = "rejected"
+        elif decision.action == "ask_user":
+            action = "requires_confirmation"
+        else:
+            action = decision.action
+        return MemoryWriteResult(
+            action=action,
+            memory=memory,
+            candidate=decision,
+            reason=decision.reason,
+            target_memory_id=decision.target_memory_id,
+        )
+
+    def _new_memory_from_candidate(self, decision: MemoryCandidate) -> MemoryItem:
+        now = now_utc()
+        item = MemoryItem(
+            id=f"mem_{uuid.uuid4().hex[:12]}",
+            name=slugify(decision.name),
+            description=decision.description,
+            type=decision.type,
+            content=decision.content,
+            user_id=decision.user_id,
+            project_id=decision.project_id,
+            workspace_id=decision.workspace_id,
+            tags=decision.tags,
+            source=decision.source,
+            confidence=decision.confidence,
+            weight=decision.weight,
+            created_at=now,
+            updated_at=now,
+        )
+        validate_memory_item(item)
+        return item
+
+    def _apply_candidate_update(self, existing: MemoryItem, decision: MemoryCandidate) -> MemoryItem:
+        existing.description = decision.description
+        existing.content = decision.content
+        existing.tags = decision.tags
+        existing.weight = decision.weight
+        existing.confidence = decision.confidence
+        existing.source = decision.source
+        existing.updated_at = now_utc()
+        validate_memory_item(existing)
+        return self.memory_store.update_memory(existing)
+
+    def evaluate_memory_candidate(self, candidate: MemoryCandidate) -> MemoryWriteResult:
+        validate_memory_candidate(candidate)
+        decision = self.policy.evaluate(candidate, self.memory_store.list_memories(include_archived=False))
+        return self._write_result_from_decision(decision)
+
+    def remember_candidate(self, candidate: MemoryCandidate) -> MemoryWriteResult:
+        validate_memory_candidate(candidate)
+        decision = self.policy.evaluate(candidate, self.memory_store.list_memories(include_archived=False))
+        if decision.action == "create":
+            item = self._new_memory_from_candidate(decision)
+            saved = self.memory_store.save_memory(item)
+            return self._write_result_from_decision(decision, memory=saved)
+        if decision.action == "update" and decision.target_memory_id:
+            existing = self.memory_store.get_memory(decision.target_memory_id)
+            if existing is None:
+                raise MemoryNotFoundError(f"memory not found: {decision.target_memory_id}")
+            updated = self._apply_candidate_update(existing, decision)
+            return self._write_result_from_decision(decision, memory=updated)
+        return self._write_result_from_decision(decision)
 
     def save_memory(
         self,
@@ -77,38 +149,13 @@ class MemoryManager:
         if decision.action == "ask_user":
             raise MemoryPolicyError(f"memory requires confirmation: {decision.reason}")
 
-        now = now_utc()
         if decision.action == "update" and decision.target_memory_id:
             existing = self.memory_store.get_memory(decision.target_memory_id)
             if existing is None:
                 raise ValueError("target memory missing for update")
-            existing.description = description
-            existing.content = content
-            existing.tags = tags or []
-            existing.weight = weight
-            existing.confidence = confidence
-            existing.source = source
-            existing.updated_at = now
-            validate_memory_item(existing)
-            return self.memory_store.update_memory(existing)
+            return self._apply_candidate_update(existing, candidate)
 
-        item = MemoryItem(
-            id=f"mem_{uuid.uuid4().hex[:12]}",
-            name=slugify(decision.name),
-            description=description,
-            type=memory_type,
-            content=content,
-            user_id=user_id,
-            project_id=project_id,
-            workspace_id=workspace_id,
-            tags=tags or [],
-            source=source,
-            confidence=confidence,
-            weight=weight,
-            created_at=now,
-            updated_at=now,
-        )
-        validate_memory_item(item)
+        item = self._new_memory_from_candidate(decision)
         return self.memory_store.save_memory(item)
 
     def retrieve_memory(

@@ -111,6 +111,15 @@ class MemorySearchResult:
 
 
 @dataclass
+class MemoryWriteResult:
+    action: str
+    memory: MemoryItem | None = None
+    candidate: MemoryCandidate | None = None
+    reason: str = ""
+    target_memory_id: str | None = None
+
+
+@dataclass
 class SessionMessage:
     role: str
     content: str

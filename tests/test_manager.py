@@ -4,7 +4,7 @@ from pathlib import Path
 from memora.config import MemoryConfig
 from memora.errors import MemoryNotFoundError, MemoryPolicyError, MemoryValidationError
 from memora.manager import MemoryManager
-from memora.schema import SessionMessage
+from memora.schema import MemoryCandidate, SessionMessage
 
 
 def manager_for(tmp_path: Path) -> MemoryManager:
@@ -156,3 +156,115 @@ def test_delete_memory_hard_removes_file(tmp_path: Path):
     manager.delete_memory("language", hard=True)
 
     assert manager.memory_store.get_memory("language") is None
+
+
+def test_evaluate_memory_candidate_returns_decision_without_writing(tmp_path: Path):
+    manager = manager_for(tmp_path)
+    manager.init_storage()
+    candidate = MemoryCandidate(
+        action="create",
+        type="user",
+        name="language",
+        description="用户偏好中文。",
+        content="用户偏好使用中文回答。",
+    )
+
+    result = manager.evaluate_memory_candidate(candidate)
+
+    assert result.action == "created"
+    assert result.memory is None
+    assert result.candidate is not None
+    assert result.candidate.name == "language"
+    assert result.reason == "accepted"
+    assert manager.memory_store.list_memories() == []
+
+
+def test_remember_candidate_creates_memory(tmp_path: Path):
+    manager = manager_for(tmp_path)
+    manager.init_storage()
+    candidate = MemoryCandidate(
+        action="create",
+        type="user",
+        name="language",
+        description="用户偏好中文。",
+        content="用户偏好使用中文回答。",
+    )
+
+    result = manager.remember_candidate(candidate)
+
+    assert result.action == "created"
+    assert result.memory is not None
+    assert result.memory.name == "language"
+    assert result.reason == "accepted"
+    assert manager.memory_store.get_memory("language") is not None
+
+
+def test_remember_candidate_updates_duplicate_memory(tmp_path: Path):
+    manager = manager_for(tmp_path)
+    manager.init_storage()
+    original = manager.save_memory("user", "old content", "old desc", name="language")
+    candidate = MemoryCandidate(
+        action="create",
+        type="user",
+        name="language",
+        description="new desc",
+        content="new content",
+        tags=["preference"],
+        weight=8,
+        confidence=0.7,
+        source="session_extraction",
+    )
+
+    result = manager.remember_candidate(candidate)
+
+    assert result.action == "updated"
+    assert result.memory is not None
+    assert result.memory.id == original.id
+    assert result.memory.description == "new desc"
+    assert result.memory.content == "new content"
+    assert result.memory.tags == ["preference"]
+    assert result.memory.weight == 8
+    assert result.memory.confidence == 0.7
+    assert result.memory.source == "session_extraction"
+    assert result.reason == "duplicate_or_same_key"
+    assert result.target_memory_id == original.id
+
+
+def test_remember_candidate_rejects_secret_without_raising_policy_error(tmp_path: Path):
+    manager = manager_for(tmp_path)
+    manager.init_storage()
+    candidate = MemoryCandidate(
+        action="create",
+        type="user",
+        name="secret",
+        description="secret",
+        content="api_key = sk-abcdef123456",
+    )
+
+    result = manager.remember_candidate(candidate)
+
+    assert result.action == "rejected"
+    assert result.memory is None
+    assert result.reason == "contains_secret"
+    assert manager.memory_store.get_memory("secret") is None
+
+
+def test_remember_candidate_reports_conflict_without_writing(tmp_path: Path):
+    manager = manager_for(tmp_path)
+    manager.init_storage()
+    existing = manager.save_memory("user", "用户偏好英文回答。", "用户偏好英文。", name="language-en")
+    candidate = MemoryCandidate(
+        action="create",
+        type="user",
+        name="language-zh",
+        description="用户偏好中文。",
+        content="用户偏好中文回答。",
+    )
+
+    result = manager.remember_candidate(candidate)
+
+    assert result.action == "requires_confirmation"
+    assert result.memory is None
+    assert result.reason == "conflict_requires_confirmation"
+    assert result.target_memory_id == existing.id
+    assert manager.memory_store.get_memory("language-zh") is None
