@@ -30,6 +30,7 @@ pytest
 ```bash
 python -m memora --root .memora init
 python -m memora --root .memora save --type user --name language --description "用户偏好中文。" --content "用户偏好使用中文回答。"
+python -m memora --root .memora remember --type user --name language --description "用户偏好中文。" --content "用户偏好使用中文回答。" --session session_1 --tag preference
 python -m memora --root .memora list
 python -m memora --root .memora search "中文回答"
 python -m memora --root .memora show language
@@ -105,6 +106,34 @@ runtime.remember_message("session_1", "user", "下一步做什么")
 runtime.remember_message("session_1", "assistant", "建议做 runtime integration。")
 runtime.remember_summary("session_1", "用户认可最简单的 runtime integration。")
 ```
+
+## Agent memory write pipeline
+
+Memora does not call an LLM to extract memories. External RAG or LLM agent runtimes can extract candidate memories, then pass those candidates to Memora for deterministic validation, policy evaluation, writing, updating, rejection, or confirmation handling.
+
+```python
+from memora.runtime import MemoryRuntime
+
+runtime = MemoryRuntime()
+runtime.init_storage()
+
+result = runtime.remember_extracted(
+    memory_type="user",
+    name="language",
+    description="用户偏好中文。",
+    content="用户偏好使用中文回答。",
+    session_id="session_1",
+)
+print(result.action, result.reason)
+```
+
+For CLI debugging, use `remember` to simulate an agent-extracted candidate memory:
+
+```bash
+python -m memora --root .memora remember --type user --name language --description "用户偏好中文。" --content "用户偏好使用中文回答。" --session session_1
+```
+
+Policy outcomes such as `rejected` and `requires_confirmation` are returned as normal write results for agent workflows.
 
 ## Agent runtime demo
 
