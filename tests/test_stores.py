@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from memora.config import MemoryConfig
-from memora.errors import MemoryValidationError
+from memora.errors import MemoryNotFoundError, MemoryValidationError
 from memora.schema import MemoryItem, SessionMessage, WorkingMemoryState
 from memora.stores import FileMemoryStore, FileSessionStore
 
@@ -117,3 +117,40 @@ def test_session_store_rejects_invalid_message_role(tmp_path: Path):
 
     with pytest.raises(MemoryValidationError, match="session role"):
         store.append_message("default", "session_1", SessionMessage(role="bad", content="hello"))
+
+
+def test_set_memory_status_archives_and_restores(tmp_path: Path):
+    store = FileMemoryStore(config_for(tmp_path))
+    store.save_memory(MemoryItem(id="mem_1", name="language", description="desc", type="user", content="body"))
+
+    archived = store.set_memory_status("language", "archived")
+    assert archived.status == "archived"
+    assert store.list_memories() == []
+
+    restored = store.set_memory_status("mem_1", "active")
+    assert restored.status == "active"
+    assert len(store.list_memories()) == 1
+
+
+def test_set_memory_status_missing_raises_not_found(tmp_path: Path):
+    store = FileMemoryStore(config_for(tmp_path))
+
+    with pytest.raises(MemoryNotFoundError, match="memory not found"):
+        store.set_memory_status("missing", "archived")
+
+
+def test_hard_delete_memory_removes_file(tmp_path: Path):
+    store = FileMemoryStore(config_for(tmp_path))
+    store.save_memory(MemoryItem(id="mem_1", name="language", description="desc", type="user", content="body"))
+
+    store.hard_delete_memory("language")
+
+    assert store.get_memory("language") is None
+    assert store.list_memories(include_archived=True) == []
+
+
+def test_hard_delete_memory_missing_raises_not_found(tmp_path: Path):
+    store = FileMemoryStore(config_for(tmp_path))
+
+    with pytest.raises(MemoryNotFoundError, match="memory not found"):
+        store.hard_delete_memory("missing")

@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from .config import MemoryConfig
-from .errors import MemoryValidationError
-from .schema import MemoryItem, SessionMessage, validate_memory_item, validate_session_message
+from .errors import MemoryNotFoundError, MemoryValidationError
+from .schema import MemoryItem, SessionMessage, validate_memory_item, validate_memory_status, validate_session_message
 from .utils import dump_frontmatter, now_utc, parse_frontmatter, safe_json_load, safe_json_write, slugify
 
 
@@ -158,6 +158,23 @@ class FileMemoryStore:
     def update_memory(self, item: MemoryItem) -> MemoryItem:
         item.updated_at = now_utc()
         return self.save_memory(item)
+
+    def set_memory_status(self, identifier: str, status: str) -> MemoryItem:
+        validate_memory_status(status)
+        item = self.get_memory(identifier)
+        if item is None:
+            raise MemoryNotFoundError(f"memory not found: {identifier}")
+        item.status = status
+        return self.update_memory(item)
+
+    def hard_delete_memory(self, identifier: str) -> None:
+        item = self.get_memory(identifier)
+        if item is None:
+            raise MemoryNotFoundError(f"memory not found: {identifier}")
+        path = self._path_for_name(item.name)
+        if path.exists():
+            path.unlink()
+        self.rebuild_index()
 
     def delete_memory(self, identifier: str, soft_delete: bool = True) -> None:
         item = self.get_memory(identifier)
