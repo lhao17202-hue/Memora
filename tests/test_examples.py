@@ -1,0 +1,16 @@
+import subprocess
+import sys
+
+
+def test_simple_agent_runtime_example_runs_successfully():
+    result = subprocess.run(
+        [sys.executable, "examples/simple_agent_runtime.py"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "=== Memory Context ===" in result.stdout
+    assert "=== Assistant ===" in result.stdout
+    assert "用户偏好使用中文回答。" in result.stdout
