@@ -71,6 +71,22 @@ results = manager.retrieve_memory("中文回答")
 print(manager.format_memories_for_prompt(results=results))
 ```
 
+## Runtime integration
+
+External agent runtimes can use `MemoryRuntime` as a thin wrapper around the manager API:
+
+```python
+from memora.runtime import MemoryRuntime
+
+runtime = MemoryRuntime()
+runtime.init_storage()
+
+context = runtime.build_context("用户偏好和当前项目")
+runtime.remember_message("session_1", "user", "下一步做什么")
+runtime.remember_message("session_1", "assistant", "建议做 runtime integration。")
+runtime.remember_summary("session_1", "用户认可最简单的 runtime integration。")
+```
+
 ## MVP boundaries
 
 This version does not include LLM-based extraction, embeddings, vector databases, SQL backends, web UI, or hosted multi-tenant service.
