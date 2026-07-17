@@ -20,6 +20,13 @@ HALF_LIFE_DAYS = {
     "entity": 180,
 }
 
+FIELD_WEIGHTS = {
+    "name": 1.00,
+    "tags": 0.95,
+    "description": 0.85,
+    "content": 0.65,
+}
+
 
 def _tokens(text: str) -> set[str]:
     lowered = (text or "").lower()
@@ -51,13 +58,23 @@ class MemoryRetriever:
         if memory.type == "knowledge" and not query.include_knowledge:
             return None
 
-        haystack = " ".join([memory.name, memory.description, " ".join(memory.tags), memory.content])
         query_tokens = _tokens(query.query)
-        memory_tokens = _tokens(haystack)
-        if not query_tokens:
-            similarity_score = 0.0
-        else:
-            similarity_score = len(query_tokens & memory_tokens) / len(query_tokens)
+        field_texts = {
+            "name": memory.name,
+            "tags": " ".join(memory.tags),
+            "description": memory.description,
+            "content": memory.content,
+        }
+        similarity_score = 0.0
+        reason = ""
+        if query_tokens:
+            for field_name, field_text in field_texts.items():
+                field_tokens = _tokens(field_text)
+                coverage = len(query_tokens & field_tokens) / len(query_tokens)
+                weighted_score = coverage * FIELD_WEIGHTS[field_name]
+                if weighted_score > similarity_score:
+                    similarity_score = min(weighted_score, 1.0)
+                    reason = f"matched_{field_name}"
         if similarity_score <= 0:
             return None
 
@@ -77,7 +94,7 @@ class MemoryRetriever:
             recency_score=recency_score,
             access_score=access_score,
             final_score=final_score,
-            reason="keyword_match",
+            reason=reason,
         )
 
     def _recency_score(self, memory: MemoryItem) -> float:
