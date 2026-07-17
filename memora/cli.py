@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import sys
 
 from .config import MemoryConfig
+from .errors import MemoraError
 from .manager import MemoryManager
 from .schema import SessionMessage
 
@@ -54,6 +56,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     manager = MemoryManager(MemoryConfig(root_dir=args.root))
 
+    try:
+        return _run_command(args, manager, parser)
+    except MemoraError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+
+def _run_command(args, manager: MemoryManager, parser: argparse.ArgumentParser) -> int:
     if args.command == "init":
         manager.init_storage()
         print(f"initialized {args.root}")

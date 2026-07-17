@@ -69,3 +69,24 @@ def test_session_append_and_show(tmp_path: Path):
     shown = run_cli(root, "session", "show", "session_1")
     assert shown.returncode == 0
     assert "hello" in shown.stdout
+
+
+def test_save_secret_reports_clear_error(tmp_path: Path):
+    root = tmp_path / ".memora"
+
+    result = run_cli(
+        root,
+        "save",
+        "--type",
+        "user",
+        "--name",
+        "secret",
+        "--description",
+        "secret",
+        "--content",
+        "api_key = sk-abcdef123456",
+    )
+
+    assert result.returncode == 1
+    assert "error:" in result.stderr
+    assert "contains_secret" in result.stderr
