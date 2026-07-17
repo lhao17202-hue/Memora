@@ -87,6 +87,16 @@ runtime.remember_message("session_1", "assistant", "建议做 runtime integratio
 runtime.remember_summary("session_1", "用户认可最简单的 runtime integration。")
 ```
 
+## Agent runtime demo
+
+Run the fake agent runtime example:
+
+```bash
+python examples/simple_agent_runtime.py
+```
+
+The demo uses `MemoryRuntime` with a local fake assistant response. It does not call an LLM.
+
 ## MVP boundaries
 
 This version does not include LLM-based extraction, embeddings, vector databases, SQL backends, web UI, or hosted multi-tenant service.
