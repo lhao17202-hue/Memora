@@ -33,6 +33,13 @@ python -m memora --root .memora save --type user --name language --description "
 python -m memora --root .memora list
 python -m memora --root .memora search "中文回答"
 python -m memora --root .memora show language
+python -m memora --root .memora update language --tag language --weight 8
+python -m memora --root .memora archive language
+python -m memora --root .memora list --archived
+python -m memora --root .memora restore language
+python -m memora --root .memora search "中文回答" --type user --tag language --top-k 5
+python -m memora --root .memora delete language
+python -m memora --root .memora list --all
 python -m memora --root .memora session append session_1 --role user --content "hello"
 python -m memora --root .memora session show session_1
 python -m memora --root .memora clean
