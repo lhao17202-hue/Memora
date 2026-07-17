@@ -42,6 +42,11 @@ python -m memora --root .memora delete language
 python -m memora --root .memora list --all
 python -m memora --root .memora session append session_1 --role user --content "hello"
 python -m memora --root .memora session show session_1
+python -m memora --root .memora export memories.json
+python -m memora --root .memora import memories.json
+python -m memora --root .memora verify
+python -m memora --root .memora rebuild-index
+python -m memora --root .memora backup backup.json
 python -m memora --root .memora clean
 ```
 
@@ -53,6 +58,20 @@ Validation and policy failures are reported to stderr and return a non-zero exit
 python -m memora --root .memora save --type user --name secret --description "secret" --content "api_key = sk-abcdef123456"
 # stderr: error: memory rejected: contains_secret
 ```
+
+## Data portability and integrity
+
+Memora can export, import, verify, rebuild, and back up memory files:
+
+```bash
+python -m memora --root .memora export memories.json
+python -m memora --root .memora import memories.json
+python -m memora --root .memora verify
+python -m memora --root .memora rebuild-index
+python -m memora --root .memora backup backup.json
+```
+
+These commands cover memories only, not session history.
 
 ## Python usage
 
