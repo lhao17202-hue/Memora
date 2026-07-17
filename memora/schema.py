@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
 
+from .errors import MemoryValidationError
+
 MemoryType = Literal[
     "user",
     "feedback",
@@ -21,6 +23,24 @@ MemoryType = Literal[
 MemoryStatus = Literal["active", "archived", "deleted"]
 
 CandidateAction = Literal["create", "update", "archive", "delete", "reject", "ask_user"]
+
+VALID_MEMORY_TYPES = (
+    "user",
+    "feedback",
+    "project",
+    "decision",
+    "entity",
+    "session_summary",
+    "tool_experience",
+    "reference",
+    "knowledge",
+)
+
+VALID_MEMORY_STATUSES = ("active", "archived", "deleted")
+
+VALID_CANDIDATE_ACTIONS = ("create", "update", "archive", "delete", "reject", "ask_user")
+
+VALID_SESSION_ROLES = ("user", "assistant", "system", "tool")
 
 
 @dataclass
@@ -110,3 +130,75 @@ class WorkingMemoryState:
     process_notes: list[str] = field(default_factory=list)
     tool_failures: list[str] = field(default_factory=list)
     next_step: str = ""
+
+
+def _require_non_empty_string(value: str, field_name: str) -> None:
+    if not isinstance(value, str) or not value.strip():
+        raise MemoryValidationError(f"{field_name} must be a non-empty string")
+
+
+def validate_memory_type(value: str) -> None:
+    if value not in VALID_MEMORY_TYPES:
+        raise MemoryValidationError(f"invalid memory type: {value}")
+
+
+def validate_memory_status(value: str) -> None:
+    if value not in VALID_MEMORY_STATUSES:
+        raise MemoryValidationError(f"invalid memory status: {value}")
+
+
+def validate_candidate_action(value: str) -> None:
+    if value not in VALID_CANDIDATE_ACTIONS:
+        raise MemoryValidationError(f"invalid candidate action: {value}")
+
+
+def _validate_weight(weight: int) -> None:
+    if not isinstance(weight, int) or weight < 1 or weight > 10:
+        raise MemoryValidationError("weight must be an integer from 1 to 10")
+
+
+def _validate_confidence(confidence: float) -> None:
+    if not isinstance(confidence, int | float) or confidence < 0.0 or confidence > 1.0:
+        raise MemoryValidationError("confidence must be from 0.0 to 1.0")
+
+
+def validate_memory_item(item: MemoryItem) -> None:
+    _require_non_empty_string(item.id, "memory id")
+    _require_non_empty_string(item.name, "memory name")
+    _require_non_empty_string(item.description, "memory description")
+    _require_non_empty_string(item.content, "memory content")
+    validate_memory_type(item.type)
+    validate_memory_status(item.status)
+    _validate_weight(item.weight)
+    _validate_confidence(item.confidence)
+    if item.access_count < 0:
+        raise MemoryValidationError("access_count must be >= 0")
+
+
+def validate_memory_candidate(candidate: MemoryCandidate) -> None:
+    validate_candidate_action(candidate.action)
+    _require_non_empty_string(candidate.name, "candidate name")
+    _require_non_empty_string(candidate.description, "candidate description")
+    _require_non_empty_string(candidate.content, "candidate content")
+    validate_memory_type(candidate.type)
+    _validate_weight(candidate.weight)
+    _validate_confidence(candidate.confidence)
+
+
+def validate_memory_query(query: MemoryQuery) -> None:
+    if not isinstance(query.query, str):
+        raise MemoryValidationError("query must be a string")
+    if query.top_k <= 0:
+        raise MemoryValidationError("top_k must be > 0")
+    if query.max_tokens <= 0:
+        raise MemoryValidationError("max_tokens must be > 0")
+    if query.memory_types:
+        for memory_type in query.memory_types:
+            validate_memory_type(memory_type)
+
+
+def validate_session_message(message: SessionMessage) -> None:
+    if message.role not in VALID_SESSION_ROLES:
+        raise MemoryValidationError(f"invalid session role: {message.role}")
+    if not isinstance(message.content, str):
+        raise MemoryValidationError("session message content must be a string")

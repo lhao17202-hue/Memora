@@ -1,7 +1,20 @@
 from datetime import datetime, timezone
 
+import pytest
+
 from memora.config import MemoryConfig
-from memora.schema import MemoryItem, MemoryQuery, SessionMessage, WorkingMemoryState
+from memora.errors import MemoryValidationError
+from memora.schema import (
+    MemoryCandidate,
+    MemoryItem,
+    MemoryQuery,
+    SessionMessage,
+    WorkingMemoryState,
+    validate_memory_candidate,
+    validate_memory_item,
+    validate_memory_query,
+    validate_session_message,
+)
 
 
 def test_memory_item_defaults_are_safe():
@@ -61,3 +74,48 @@ def test_memory_config_defaults():
     assert config.max_memory_prompt_tokens == 2000
     assert config.archive_cold_days == 180
     assert config.require_confirmation_for_conflicts is True
+
+
+def test_validate_memory_item_rejects_invalid_type():
+    item = MemoryItem(id="mem_1", name="language", description="desc", type="invalid", content="content")
+
+    with pytest.raises(MemoryValidationError, match="memory type"):
+        validate_memory_item(item)
+
+
+def test_validate_memory_item_rejects_invalid_status():
+    item = MemoryItem(id="mem_1", name="language", description="desc", type="user", content="content", status="bad")
+
+    with pytest.raises(MemoryValidationError, match="memory status"):
+        validate_memory_item(item)
+
+
+def test_validate_memory_item_rejects_invalid_weight_and_confidence():
+    overweight = MemoryItem(id="mem_1", name="language", description="desc", type="user", content="content", weight=11)
+    overconfident = MemoryItem(id="mem_2", name="style", description="desc", type="user", content="content", confidence=1.1)
+
+    with pytest.raises(MemoryValidationError, match="weight"):
+        validate_memory_item(overweight)
+    with pytest.raises(MemoryValidationError, match="confidence"):
+        validate_memory_item(overconfident)
+
+
+def test_validate_memory_candidate_rejects_invalid_action():
+    candidate = MemoryCandidate(action="bad", name="language", description="desc", type="user", content="content")
+
+    with pytest.raises(MemoryValidationError, match="candidate action"):
+        validate_memory_candidate(candidate)
+
+
+def test_validate_memory_query_rejects_invalid_limits():
+    with pytest.raises(MemoryValidationError, match="top_k"):
+        validate_memory_query(MemoryQuery(query="中文", top_k=0))
+    with pytest.raises(MemoryValidationError, match="max_tokens"):
+        validate_memory_query(MemoryQuery(query="中文", max_tokens=0))
+
+
+def test_validate_session_message_rejects_invalid_role():
+    message = SessionMessage(role="invalid", content="hello")
+
+    with pytest.raises(MemoryValidationError, match="session role"):
+        validate_session_message(message)
