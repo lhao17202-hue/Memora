@@ -70,6 +70,10 @@ def test_memory_config_defaults():
     config = MemoryConfig()
 
     assert config.root_dir == ".memora"
+    assert config.memory_backend == "file"
+    assert config.sqlite_path is None
+    assert config.fts_enabled is True
+    assert config.fts_candidate_limit == 100
     assert config.max_retrieved_memories == 8
     assert config.max_memory_prompt_tokens == 2000
     assert config.archive_cold_days == 180

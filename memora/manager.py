@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from pathlib import Path
 
 from .config import MemoryConfig
-from .errors import MemoryNotFoundError, MemoryPolicyError
+from .errors import MemoryNotFoundError, MemoryPolicyError, MemoryValidationError
 from .formatter import MemoryFormatter
 from .lifecycle import LifecycleManager
 from .policy import MemoryPolicy
@@ -24,20 +25,33 @@ from .schema import (
     validate_memory_query,
 )
 from .session import SessionService
-from .stores import FileMemoryStore, FileSessionStore
+from .sqlite_store import SQLiteMemoryStore
+from .stores import FileMemoryStore, FileSessionStore, MemoryCandidateStore, MemoryStore, SessionStore
 from .utils import now_utc, slugify
 
 
 class MemoryManager:
-    def __init__(self, config: MemoryConfig | None = None):
+    def __init__(
+        self,
+        config: MemoryConfig | None = None,
+        memory_store: MemoryStore | None = None,
+        session_store: SessionStore | None = None,
+    ):
         self.config = config or MemoryConfig()
-        self.memory_store = FileMemoryStore(self.config)
-        self.session_store = FileSessionStore(self.config)
+        self.memory_store = memory_store or self._build_memory_store()
+        self.session_store = session_store or FileSessionStore(self.config)
         self.session_service = SessionService(self.session_store)
         self.policy = MemoryPolicy()
         self.retriever = MemoryRetriever()
         self.formatter = MemoryFormatter()
         self.lifecycle = LifecycleManager(self.config)
+
+    def _build_memory_store(self) -> MemoryStore:
+        if self.config.memory_backend == "file":
+            return FileMemoryStore(self.config)
+        if self.config.memory_backend == "sqlite":
+            return SQLiteMemoryStore(self.config)
+        raise MemoryValidationError(f"unsupported memory backend: {self.config.memory_backend}")
 
     def init_storage(self) -> None:
         self.memory_store.init_storage()
@@ -96,12 +110,18 @@ class MemoryManager:
 
     def evaluate_memory_candidate(self, candidate: MemoryCandidate) -> MemoryWriteResult:
         validate_memory_candidate(candidate)
-        decision = self.policy.evaluate(candidate, self.memory_store.list_memories(include_archived=False))
+        decision = self.policy.evaluate(
+            candidate,
+            self._scoped_memories(candidate.user_id, candidate.project_id, candidate.workspace_id, include_archived=False),
+        )
         return self._write_result_from_decision(decision)
 
     def remember_candidate(self, candidate: MemoryCandidate) -> MemoryWriteResult:
         validate_memory_candidate(candidate)
-        decision = self.policy.evaluate(candidate, self.memory_store.list_memories(include_archived=False))
+        decision = self.policy.evaluate(
+            candidate,
+            self._scoped_memories(candidate.user_id, candidate.project_id, candidate.workspace_id, include_archived=False),
+        )
         if decision.action == "create":
             item = self._new_memory_from_candidate(decision)
             saved = self.memory_store.save_memory(item)
@@ -143,7 +163,10 @@ class MemoryManager:
             weight=weight,
         )
         validate_memory_candidate(candidate)
-        decision = self.policy.evaluate(candidate, self.memory_store.list_memories(include_archived=False))
+        decision = self.policy.evaluate(
+            candidate,
+            self._scoped_memories(candidate.user_id, candidate.project_id, candidate.workspace_id, include_archived=False),
+        )
         if decision.action == "reject":
             raise MemoryPolicyError(f"memory rejected: {decision.reason}")
         if decision.action == "ask_user":
@@ -158,6 +181,36 @@ class MemoryManager:
         item = self._new_memory_from_candidate(decision)
         return self.memory_store.save_memory(item)
 
+    def list_memories(self, include_archived: bool = False) -> list[MemoryItem]:
+        return self.memory_store.list_memories(include_archived=include_archived)
+
+    def get_memory(self, identifier: str) -> MemoryItem | None:
+        return self.memory_store.get_memory(identifier)
+
+    def _scoped_memories(self, user_id: str, project_id: str | None, workspace_id: str | None, include_archived: bool) -> list[MemoryItem]:
+        return [
+            memory
+            for memory in self.memory_store.list_memories(include_archived=include_archived)
+            if memory.user_id == user_id
+            and (project_id is None or memory.project_id == project_id)
+            and (workspace_id is None or memory.workspace_id == workspace_id)
+        ]
+
+    def _query_needs_full_scan_fallback(self, query: MemoryQuery) -> bool:
+        return bool(re.search(r"[一-鿿]", query.query))
+
+    def _candidate_memories(self, query: MemoryQuery) -> list[MemoryItem]:
+        scoped_memories = self._scoped_memories(query.user_id, query.project_id, query.workspace_id, query.include_archived)
+        if isinstance(self.memory_store, MemoryCandidateStore):
+            candidates = self.memory_store.search_candidates(query)
+            if candidates and not self._query_needs_full_scan_fallback(query):
+                return candidates
+            if candidates:
+                merged = {memory.id: memory for memory in scoped_memories}
+                merged.update({memory.id: memory for memory in candidates})
+                return list(merged.values())
+        return scoped_memories
+
     def retrieve_memory(
         self,
         query: str,
@@ -170,13 +223,6 @@ class MemoryManager:
         include_archived: bool = False,
         include_knowledge: bool = True,
     ) -> list[MemorySearchResult]:
-        memories = [
-            memory
-            for memory in self.memory_store.list_memories(include_archived=include_archived)
-            if memory.user_id == user_id
-            and (project_id is None or memory.project_id == project_id)
-            and (workspace_id is None or memory.workspace_id == workspace_id)
-        ]
         memory_query = MemoryQuery(
             query=query,
             user_id=user_id,
@@ -190,7 +236,7 @@ class MemoryManager:
             include_knowledge=include_knowledge,
         )
         validate_memory_query(memory_query)
-        return self.retriever.retrieve(memories, memory_query)
+        return self.retriever.retrieve(self._candidate_memories(memory_query), memory_query)
 
     def update_memory(
         self,

@@ -230,6 +230,52 @@ def test_remember_candidate_updates_duplicate_memory(tmp_path: Path):
     assert result.target_memory_id == original.id
 
 
+def test_same_memory_name_is_isolated_across_users(tmp_path: Path):
+    manager = manager_for(tmp_path)
+    manager.init_storage()
+
+    alice = manager.save_memory("user", "Alice prefers Chinese.", "Alice language.", name="language", user_id="alice")
+    bob = manager.save_memory("user", "Bob prefers English.", "Bob language.", name="language", user_id="bob")
+
+    alice_results = manager.retrieve_memory("Chinese", user_id="alice")
+    bob_results = manager.retrieve_memory("English", user_id="bob")
+
+    assert alice.id != bob.id
+    assert {item.id for item in manager.list_memories(include_archived=True)} == {alice.id, bob.id}
+    assert [result.memory.id for result in alice_results] == [alice.id]
+    assert [result.memory.id for result in bob_results] == [bob.id]
+
+
+def test_same_memory_name_is_isolated_across_explicit_projects(tmp_path: Path):
+    manager = manager_for(tmp_path)
+    manager.init_storage()
+
+    project_a = manager.save_memory(
+        "project",
+        "Project A uses pytest.",
+        "Project A test framework.",
+        name="test-framework",
+        user_id="default",
+        project_id="project-a",
+    )
+    project_b = manager.save_memory(
+        "project",
+        "Project B uses unittest.",
+        "Project B test framework.",
+        name="test-framework",
+        user_id="default",
+        project_id="project-b",
+    )
+
+    project_a_results = manager.retrieve_memory("pytest", project_id="project-a")
+    project_b_results = manager.retrieve_memory("unittest", project_id="project-b")
+
+    assert project_a.id != project_b.id
+    assert {item.id for item in manager.list_memories(include_archived=True)} == {project_a.id, project_b.id}
+    assert [result.memory.id for result in project_a_results] == [project_a.id]
+    assert [result.memory.id for result in project_b_results] == [project_b.id]
+
+
 def test_remember_candidate_rejects_secret_without_raising_policy_error(tmp_path: Path):
     manager = manager_for(tmp_path)
     manager.init_storage()

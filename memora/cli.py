@@ -17,6 +17,9 @@ def build_parser() -> argparse.ArgumentParser:
         description="Memora deterministic local memory system.",
     )
     parser.add_argument("--root", default=".memora", help="Memora runtime root directory.")
+    parser.add_argument("--backend", choices=("file", "sqlite"), default="file", help="Memory storage backend.")
+    parser.add_argument("--sqlite-path", help="SQLite database path when --backend sqlite is used.")
+    parser.add_argument("--no-fts", action="store_true", help="Disable SQLite FTS candidate recall.")
     subparsers = parser.add_subparsers(dest="command")
 
     subparsers.add_parser("init", help="Initialize a Memora runtime directory.")
@@ -101,7 +104,14 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    manager = MemoryManager(MemoryConfig(root_dir=args.root))
+    manager = MemoryManager(
+        MemoryConfig(
+            root_dir=args.root,
+            memory_backend=args.backend,
+            sqlite_path=args.sqlite_path,
+            fts_enabled=not args.no_fts,
+        )
+    )
 
     try:
         return _run_command(args, manager, parser)
@@ -158,7 +168,7 @@ def _run_command(args, manager: MemoryManager, parser: argparse.ArgumentParser) 
         return 0
 
     if args.command == "list":
-        items = manager.memory_store.list_memories(include_archived=args.archived or args.all)
+        items = manager.list_memories(include_archived=args.archived or args.all)
         if args.archived and not args.all:
             items = [item for item in items if item.status == "archived"]
         if not args.all:
@@ -168,7 +178,7 @@ def _run_command(args, manager: MemoryManager, parser: argparse.ArgumentParser) 
         return 0
 
     if args.command == "show":
-        item = manager.memory_store.get_memory(args.identifier)
+        item = manager.get_memory(args.identifier)
         if item is None:
             print("memory not found")
             return 1

@@ -6,12 +6,12 @@ import uuid
 from dataclasses import asdict
 
 from .schema import SessionMessage, WorkingMemoryState
-from .stores import FileSessionStore
+from .stores import SessionStore
 from .utils import now_utc
 
 
 class SessionService:
-    def __init__(self, session_store: FileSessionStore):
+    def __init__(self, session_store: SessionStore):
         self.session_store = session_store
 
     def create_session(self, user_id: str = "default", session_id: str | None = None) -> dict:

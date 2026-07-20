@@ -208,6 +208,87 @@ def test_export_import_verify_rebuild_and_backup_commands(tmp_path: Path):
     assert backup_path.exists()
 
 
+def test_import_missing_file_reports_cli_error_without_traceback(tmp_path: Path):
+    root = tmp_path / ".memora"
+    missing = tmp_path / "missing.json"
+
+    result = run_cli(root, "import", str(missing))
+
+    assert result.returncode == 1
+    assert "error:" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_import_bad_format_reports_cli_error_without_traceback(tmp_path: Path):
+    root = tmp_path / ".memora"
+    import_path = tmp_path / "bad.json"
+    import_path.write_text('{"format": "wrong", "memories": []}', encoding="utf-8")
+
+    result = run_cli(root, "import", str(import_path))
+
+    assert result.returncode == 1
+    assert "error:" in result.stderr
+    assert "unsupported import format" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_import_non_list_memories_reports_cli_error_without_traceback(tmp_path: Path):
+    root = tmp_path / ".memora"
+    import_path = tmp_path / "bad.json"
+    import_path.write_text('{"format": "memora.memories.v1", "memories": {}}', encoding="utf-8")
+
+    result = run_cli(root, "import", str(import_path))
+
+    assert result.returncode == 1
+    assert "error:" in result.stderr
+    assert "memories must be a list" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_sqlite_backend_cli_memory_and_session_flow(tmp_path: Path):
+    root = tmp_path / ".memora"
+
+    initialized = run_cli(root, "--backend", "sqlite", "init")
+    saved = run_cli(
+        root,
+        "--backend",
+        "sqlite",
+        "save",
+        "--type",
+        "user",
+        "--name",
+        "language",
+        "--description",
+        "用户偏好中文。",
+        "--content",
+        "用户偏好使用中文回答。",
+    )
+    listed = run_cli(root, "--backend", "sqlite", "list")
+    shown = run_cli(root, "--backend", "sqlite", "show", "language")
+    searched = run_cli(root, "--backend", "sqlite", "search", "中文回答")
+    verified = run_cli(root, "--backend", "sqlite", "verify")
+    appended = run_cli(root, "--backend", "sqlite", "session", "append", "session_1", "--role", "user", "--content", "hello")
+    session = run_cli(root, "--backend", "sqlite", "session", "show", "session_1")
+
+    assert initialized.returncode == 0
+    assert saved.returncode == 0
+    assert "saved" in saved.stdout
+    assert (root / "memora.sqlite3").exists()
+    assert listed.returncode == 0
+    assert "language" in listed.stdout
+    assert shown.returncode == 0
+    assert "用户偏好使用中文回答。" in shown.stdout
+    assert searched.returncode == 0
+    assert "language" in searched.stdout
+    assert verified.returncode == 0
+    assert "verified 1 memories" in verified.stdout
+    assert "index_ok=True" in verified.stdout
+    assert appended.returncode == 0
+    assert session.returncode == 0
+    assert "hello" in session.stdout
+    assert (root / "sessions" / "default" / "session_1.json").exists()
+
+
 def test_remember_command_creates_and_updates_candidate_memory(tmp_path: Path):
     root = tmp_path / ".memora"
 

@@ -5,11 +5,11 @@ from __future__ import annotations
 from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from .config import MemoryConfig
 from .errors import MemoryNotFoundError, MemoryValidationError
-from .schema import MemoryItem, SessionMessage, validate_memory_item, validate_memory_status, validate_session_message
+from .schema import MemoryItem, MemoryQuery, SessionMessage, validate_memory_item, validate_memory_status, validate_session_message
 from .utils import dump_frontmatter, now_utc, parse_frontmatter, safe_json_load, safe_json_write, slugify
 
 
@@ -52,6 +52,49 @@ def _validate_session_id(session_id: str) -> None:
         raise MemoryValidationError("session_id must not contain path separators or '..'")
 
 
+def _scope_part(value: str | None) -> str:
+    if value is None:
+        return "_"
+    return slugify(value) if str(value).strip() else "_"
+
+
+@runtime_checkable
+class MemoryStore(Protocol):
+    def init_storage(self) -> None: ...
+
+    def save_memory(self, item: MemoryItem) -> MemoryItem: ...
+
+    def list_memories(self, include_archived: bool = False) -> list[MemoryItem]: ...
+
+    def get_memory(self, identifier: str) -> MemoryItem | None: ...
+
+    def update_memory(self, item: MemoryItem) -> MemoryItem: ...
+
+    def set_memory_status(self, identifier: str, status: str) -> MemoryItem: ...
+
+    def hard_delete_memory(self, identifier: str) -> None: ...
+
+    def delete_memory(self, identifier: str, soft_delete: bool = True) -> None: ...
+
+    def rebuild_index(self) -> None: ...
+
+
+@runtime_checkable
+class MemoryCandidateStore(MemoryStore, Protocol):
+    def search_candidates(self, query: MemoryQuery) -> list[MemoryItem]: ...
+
+
+@runtime_checkable
+class SessionStore(Protocol):
+    def init_storage(self) -> None: ...
+
+    def save_session(self, session: dict[str, Any]) -> None: ...
+
+    def load_session(self, user_id: str, session_id: str) -> dict[str, Any] | None: ...
+
+    def append_message(self, user_id: str, session_id: str, message: SessionMessage) -> None: ...
+
+
 class FileMemoryStore:
     def __init__(self, config: MemoryConfig):
         self.config = config
@@ -70,8 +113,15 @@ class FileMemoryStore:
         if not self.index_path.exists():
             self.index_path.write_text("", encoding="utf-8")
 
+    def _scope_parts(self, user_id: str, project_id: str | None, workspace_id: str | None) -> tuple[str, str, str]:
+        return (_scope_part(user_id or "default"), _scope_part(project_id), _scope_part(workspace_id))
+
     def _path_for_name(self, name: str) -> Path:
-        return self.memories_dir / f"{slugify(name)}.md"
+        return self.memories_dir / "default" / "_" / "_" / f"{slugify(name)}.md"
+
+    def _path_for_item(self, item: MemoryItem) -> Path:
+        user_part, project_part, workspace_part = self._scope_parts(item.user_id, item.project_id, item.workspace_id)
+        return self.memories_dir / user_part / project_part / workspace_part / f"{slugify(item.name)}.md"
 
     def _item_to_text(self, item: MemoryItem) -> str:
         metadata = {
@@ -134,14 +184,16 @@ class FileMemoryStore:
         item.created_at = item.created_at or now
         item.updated_at = item.updated_at or now
         validate_memory_item(item)
-        self._path_for_name(item.name).write_text(self._item_to_text(item), encoding="utf-8")
+        path = self._path_for_item(item)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(self._item_to_text(item), encoding="utf-8")
         self.rebuild_index()
         return item
 
     def list_memories(self, include_archived: bool = False) -> list[MemoryItem]:
         self.init_storage()
         items = []
-        for path in sorted(self.memories_dir.glob("*.md")):
+        for path in sorted(self.memories_dir.rglob("*.md")):
             item = self._item_from_text(path.read_text(encoding="utf-8"))
             if item.status == "active" or include_archived:
                 items.append(item)
@@ -171,7 +223,7 @@ class FileMemoryStore:
         item = self.get_memory(identifier)
         if item is None:
             raise MemoryNotFoundError(f"memory not found: {identifier}")
-        path = self._path_for_name(item.name)
+        path = self._path_for_item(item)
         if path.exists():
             path.unlink()
         self.rebuild_index()
@@ -180,7 +232,7 @@ class FileMemoryStore:
         item = self.get_memory(identifier)
         if item is None:
             return
-        path = self._path_for_name(item.name)
+        path = self._path_for_item(item)
         if soft_delete:
             item.status = "archived"
             self.update_memory(item)
@@ -191,10 +243,11 @@ class FileMemoryStore:
     def rebuild_index(self) -> None:
         self.memories_dir.mkdir(parents=True, exist_ok=True)
         lines = []
-        for path in sorted(self.memories_dir.glob("*.md")):
+        for path in sorted(self.memories_dir.rglob("*.md")):
             item = self._item_from_text(path.read_text(encoding="utf-8"))
             if item.status == "active":
-                lines.append(f"- [{item.name}](memories/{item.name}.md) — {item.description}")
+                relative = path.relative_to(self.root).as_posix()
+                lines.append(f"- [{item.name}]({relative}) — {item.description}")
         self.index_path.parent.mkdir(parents=True, exist_ok=True)
         self.index_path.write_text(("\n".join(lines) + "\n") if lines else "", encoding="utf-8")
 
@@ -208,18 +261,26 @@ class FileSessionStore:
     def init_storage(self) -> None:
         self.sessions_dir.mkdir(parents=True, exist_ok=True)
 
-    def _path(self, session_id: str) -> Path:
+    def _path(self, user_id: str, session_id: str) -> Path:
+        _validate_session_id(session_id)
+        return self.sessions_dir / _scope_part(user_id or "default") / f"{session_id}.json"
+
+    def _legacy_path(self, session_id: str) -> Path:
         _validate_session_id(session_id)
         return self.sessions_dir / f"{session_id}.json"
 
     def save_session(self, session: dict[str, Any]) -> None:
         self.init_storage()
-        _validate_session_id(str(session["id"]))
-        safe_json_write(self._path(str(session["id"])), _clean_dict(session))
+        user_id = str(session.get("user_id") or "default")
+        session_id = str(session["id"])
+        _validate_session_id(session_id)
+        safe_json_write(self._path(user_id, session_id), _clean_dict(session))
 
     def load_session(self, user_id: str, session_id: str) -> dict[str, Any] | None:
         self.init_storage()
-        session = safe_json_load(self._path(session_id), default=None)
+        session = safe_json_load(self._path(user_id, session_id), default=None)
+        if session is None and user_id == "default":
+            session = safe_json_load(self._legacy_path(session_id), default=None)
         if session is None or session.get("user_id") != user_id:
             return None
         return session

@@ -6,8 +6,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .errors import MemoryValidationError
 from .schema import MemoryItem, validate_memory_item
-from .stores import FileMemoryStore
+from .stores import MemoryStore
 from .utils import safe_json_load, safe_json_write, slugify
 
 EXPORT_FORMAT = "memora.memories.v1"
@@ -18,7 +19,12 @@ def _dt_to_text(value: datetime | None) -> str | None:
 
 
 def _dt_from_text(value: str | None) -> datetime | None:
-    return datetime.fromisoformat(value) if value else None
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise MemoryValidationError(f"invalid datetime value: {value}") from exc
 
 
 def memory_to_dict(item: MemoryItem) -> dict[str, Any]:
@@ -73,20 +79,24 @@ def memory_from_dict(data: dict[str, Any]) -> MemoryItem:
     return item
 
 
-def export_memories(store: FileMemoryStore, path: str | Path) -> dict[str, Any]:
+def export_memories(store: MemoryStore, path: str | Path) -> dict[str, Any]:
     items = store.list_memories(include_archived=True)
     output = {"format": EXPORT_FORMAT, "memories": [memory_to_dict(item) for item in items]}
     safe_json_write(Path(path), output)
     return {"exported": len(items), "path": str(path)}
 
 
-def import_memories(store: FileMemoryStore, path: str | Path) -> dict[str, Any]:
-    data = safe_json_load(Path(path), default={})
+def import_memories(store: MemoryStore, path: str | Path) -> dict[str, Any]:
+    data = safe_json_load(Path(path), default=None)
+    if data is None:
+        raise MemoryValidationError(f"import file not found: {path}")
+    if not isinstance(data, dict):
+        raise MemoryValidationError("import file must contain a JSON object")
     if data.get("format") != EXPORT_FORMAT:
-        raise ValueError(f"unsupported import format: {data.get('format')}")
+        raise MemoryValidationError(f"unsupported import format: {data.get('format')}")
     memories = data.get("memories")
     if not isinstance(memories, list):
-        raise ValueError("memories must be a list")
+        raise MemoryValidationError("memories must be a list")
 
     existing = store.list_memories(include_archived=True)
     existing_ids = {item.id for item in existing}
@@ -110,35 +120,37 @@ def import_memories(store: FileMemoryStore, path: str | Path) -> dict[str, Any]:
     return report
 
 
-def _expected_index(store: FileMemoryStore, items: list[MemoryItem]) -> str:
-    lines = [
-        f"- [{item.name}](memories/{item.name}.md) — {item.description}"
-        for item in sorted(items, key=lambda memory: memory.name)
-        if item.status == "active"
-    ]
+def _expected_index(store, entries: list[tuple[Path, MemoryItem]]) -> str:
+    lines = []
+    for path, item in sorted(entries, key=lambda entry: entry[1].name):
+        if item.status == "active":
+            relative = path.relative_to(store.root).as_posix()
+            lines.append(f"- [{item.name}]({relative}) — {item.description}")
     return ("\n".join(lines) + "\n") if lines else ""
 
 
-def verify_memories(store: FileMemoryStore) -> dict[str, Any]:
+def verify_memories(store: MemoryStore) -> dict[str, Any]:
+    if hasattr(store, "verify"):
+        return store.verify()
     store.init_storage()
     report = {"checked": 0, "errors": [], "index_ok": True}
-    items = []
-    for path in sorted(store.memories_dir.glob("*.md")):
+    entries = []
+    for path in sorted(store.memories_dir.rglob("*.md")):
         try:
             item = store._item_from_text(path.read_text(encoding="utf-8"))
-            items.append(item)
+            entries.append((path, item))
             report["checked"] += 1
         except Exception as exc:  # noqa: BLE001 - verification reports file errors
             report["errors"].append({"path": str(path), "error": str(exc)})
-    expected = _expected_index(store, items)
+    expected = _expected_index(store, entries)
     actual = store.index_path.read_text(encoding="utf-8") if store.index_path.exists() else ""
     report["index_ok"] = actual == expected
     return report
 
 
-def rebuild_index(store: FileMemoryStore) -> None:
+def rebuild_index(store: MemoryStore) -> None:
     store.rebuild_index()
 
 
-def backup_memories(store: FileMemoryStore, path: str | Path) -> dict[str, Any]:
+def backup_memories(store: MemoryStore, path: str | Path) -> dict[str, Any]:
     return export_memories(store, path)

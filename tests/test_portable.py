@@ -12,6 +12,12 @@ def manager_for(tmp_path: Path) -> MemoryManager:
     return manager
 
 
+def sqlite_manager_for(tmp_path: Path) -> MemoryManager:
+    manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", memory_backend="sqlite"))
+    manager.init_storage()
+    return manager
+
+
 def test_export_memories_writes_versioned_json_with_all_statuses(tmp_path: Path):
     manager = manager_for(tmp_path)
     active = manager.save_memory("user", "active content", "active desc", name="active")
@@ -108,6 +114,31 @@ def test_verify_memories_reports_index_health_and_rebuild_repairs(tmp_path: Path
     manager.rebuild_index()
     repaired = manager.verify_memories()
     assert repaired["index_ok"] is True
+
+
+def test_file_to_sqlite_to_file_export_import_round_trip(tmp_path: Path):
+    file_source = manager_for(tmp_path / "file-source")
+    original = file_source.save_memory("user", "用户偏好中文回答。", "用户偏好中文。", name="language", tags=["language"])
+    export_path = tmp_path / "file-export.json"
+    sqlite_export_path = tmp_path / "sqlite-export.json"
+
+    file_source.export_memories(export_path)
+    sqlite_target = sqlite_manager_for(tmp_path / "sqlite-target")
+    imported = sqlite_target.import_memories(export_path)
+    sqlite_verify = sqlite_target.verify_memories()
+    sqlite_target.export_memories(sqlite_export_path)
+    file_target = manager_for(tmp_path / "file-target")
+    round_tripped = file_target.import_memories(sqlite_export_path)
+    restored = file_target.get_memory("language")
+
+    assert imported["imported"] == 1
+    assert imported["errors"] == []
+    assert sqlite_verify["checked"] == 1
+    assert sqlite_verify["index_ok"] is True
+    assert round_tripped["imported"] == 1
+    assert restored is not None
+    assert restored.id == original.id
+    assert restored.tags == ["language"]
 
 
 def test_backup_writes_same_format_as_export(tmp_path: Path):

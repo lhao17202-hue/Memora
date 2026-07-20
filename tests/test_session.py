@@ -33,6 +33,19 @@ def test_append_and_get_messages_with_limit(tmp_path: Path):
     assert messages[0].content == "two"
 
 
+def test_session_service_auto_creates_same_session_id_per_user_without_collision(tmp_path: Path):
+    service = make_service(tmp_path)
+
+    service.append_message("alice", "session_1", SessionMessage(role="user", content="alice message"))
+    service.append_message("bob", "session_1", SessionMessage(role="user", content="bob message"))
+
+    alice_messages = service.get_messages("alice", "session_1")
+    bob_messages = service.get_messages("bob", "session_1")
+
+    assert [message.content for message in alice_messages] == ["alice message"]
+    assert [message.content for message in bob_messages] == ["bob message"]
+
+
 def test_update_and_get_working_memory(tmp_path: Path):
     service = make_service(tmp_path)
     service.create_session(session_id="session_1")

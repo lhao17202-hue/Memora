@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass
 class MemoryConfig:
-    root_dir: str = ".memora"
+    root_dir: str | Path = ".memora"
+    memory_backend: str = "file"
+    sqlite_path: str | Path | None = None
+    fts_enabled: bool = True
+    fts_candidate_limit: int = 100
     max_retrieved_memories: int = 8
     max_memory_prompt_tokens: int = 2000
     max_memory_content_chars: int = 4000

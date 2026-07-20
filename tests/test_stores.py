@@ -50,6 +50,72 @@ def test_save_list_get_and_rebuild_index(tmp_path: Path):
     assert "用户偏好中文。" in index
 
 
+def test_file_memory_store_keeps_same_name_in_different_user_scopes(tmp_path: Path):
+    store = FileMemoryStore(config_for(tmp_path))
+
+    store.save_memory(
+        MemoryItem(
+            id="mem_alice",
+            name="language",
+            description="Alice language.",
+            type="user",
+            content="Alice prefers Chinese.",
+            user_id="alice",
+        )
+    )
+    store.save_memory(
+        MemoryItem(
+            id="mem_bob",
+            name="language",
+            description="Bob language.",
+            type="user",
+            content="Bob prefers English.",
+            user_id="bob",
+        )
+    )
+
+    items = store.list_memories(include_archived=True)
+
+    assert {item.id for item in items} == {"mem_alice", "mem_bob"}
+    assert store.get_memory("mem_alice").content == "Alice prefers Chinese."
+    assert store.get_memory("mem_bob").content == "Bob prefers English."
+    assert (tmp_path / ".memora" / "memories" / "alice" / "_" / "_" / "language.md").exists()
+    assert (tmp_path / ".memora" / "memories" / "bob" / "_" / "_" / "language.md").exists()
+
+
+def test_file_memory_store_keeps_same_name_in_different_project_scopes(tmp_path: Path):
+    store = FileMemoryStore(config_for(tmp_path))
+
+    store.save_memory(
+        MemoryItem(
+            id="mem_project_a",
+            name="test-framework",
+            description="Project A framework.",
+            type="project",
+            content="Project A uses pytest.",
+            user_id="default",
+            project_id="project-a",
+        )
+    )
+    store.save_memory(
+        MemoryItem(
+            id="mem_project_b",
+            name="test-framework",
+            description="Project B framework.",
+            type="project",
+            content="Project B uses unittest.",
+            user_id="default",
+            project_id="project-b",
+        )
+    )
+
+    items = store.list_memories(include_archived=True)
+
+    assert {item.id for item in items} == {"mem_project_a", "mem_project_b"}
+    assert (tmp_path / ".memora" / "memories" / "default" / "project-a" / "_" / "test-framework.md").exists()
+    assert (tmp_path / ".memora" / "memories" / "default" / "project-b" / "_" / "test-framework.md").exists()
+
+
 def test_soft_delete_archives_memory_by_default(tmp_path: Path):
     store = FileMemoryStore(config_for(tmp_path))
     store.save_memory(MemoryItem(id="mem_1", name="keep", description="desc", type="project", content="body"))
@@ -79,6 +145,23 @@ def test_session_store_save_load_append(tmp_path: Path):
     assert loaded["id"] == "session_1"
     assert loaded["history"][0]["role"] == "user"
     assert loaded["history"][0]["content"] == "hello"
+
+
+def test_session_store_keeps_same_session_id_in_different_user_scopes(tmp_path: Path):
+    store = FileSessionStore(config_for(tmp_path))
+
+    store.append_message("alice", "session_1", SessionMessage(role="user", content="hello from alice"))
+    store.append_message("bob", "session_1", SessionMessage(role="user", content="hello from bob"))
+
+    alice = store.load_session("alice", "session_1")
+    bob = store.load_session("bob", "session_1")
+
+    assert alice is not None
+    assert bob is not None
+    assert alice["history"][0]["content"] == "hello from alice"
+    assert bob["history"][0]["content"] == "hello from bob"
+    assert (tmp_path / ".memora" / "sessions" / "alice" / "session_1.json").exists()
+    assert (tmp_path / ".memora" / "sessions" / "bob" / "session_1.json").exists()
 
 
 def test_memory_store_rejects_invalid_datetime_frontmatter(tmp_path: Path):

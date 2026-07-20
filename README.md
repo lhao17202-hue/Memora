@@ -5,6 +5,7 @@ Memora is a deterministic local memory system for agent runtimes.
 It provides:
 
 - Markdown memory files with YAML frontmatter
+- SQLite memory storage with FTS candidate recall
 - JSON session history
 - Working memory state
 - Deterministic safety policy
@@ -49,6 +50,33 @@ python -m memora --root .memora verify
 python -m memora --root .memora rebuild-index
 python -m memora --root .memora backup backup.json
 python -m memora --root .memora clean
+```
+
+The default memory backend is the Markdown file store.
+
+## SQLite backend
+
+Use `--backend sqlite` to store memories in SQLite at `<root>/memora.sqlite3`:
+
+```bash
+python -m memora --root .memora --backend sqlite init
+python -m memora --root .memora --backend sqlite save --type user --name language --description "用户偏好中文。" --content "用户偏好使用中文回答。"
+python -m memora --root .memora --backend sqlite search "中文回答"
+python -m memora --root .memora --backend sqlite verify
+python -m memora --root .memora --backend sqlite rebuild-index
+```
+
+SQLite FTS is used for candidate recall only. Final ranking still uses Memora's deterministic scoring. Chinese short-query fallback is preserved.
+
+Memory storage is scoped by `user_id`, `project_id`, `workspace_id`, and name so different scopes can keep the same memory name independently. Name-based operations such as `show`, `update`, `archive`, and `delete` remain unscoped in the current CLI/API, so use memory IDs when duplicate names exist across scopes.
+
+Session history remains JSON-file backed in this phase, even when `--backend sqlite` is used for memories.
+
+To move memories between backends, use the existing JSON export/import format:
+
+```bash
+python -m memora --root .memora --backend file export memories.json
+python -m memora --root .memora --backend sqlite import memories.json
 ```
 
 ## CLI error behavior
@@ -135,6 +163,10 @@ python -m memora --root .memora remember --type user --name language --descripti
 
 Policy outcomes such as `rejected` and `requires_confirmation` are returned as normal write results for agent workflows.
 
+## Configuration caveats
+
+Some configuration fields are placeholders for the next policy pass. Retrieval limits and lifecycle cleanup settings are active, but policy-related fields such as `max_memory_content_chars`, default memory weights, auto-save switches, and conflict-confirmation behavior are not fully wired through every write path yet.
+
 ## Agent runtime demo
 
 Run the fake agent runtime example:
@@ -147,4 +179,4 @@ The demo uses `MemoryRuntime` with a local fake assistant response. It does not 
 
 ## MVP boundaries
 
-This version does not include LLM-based extraction, embeddings, vector databases, SQL backends, web UI, or hosted multi-tenant service.
+This version does not include LLM-based extraction, embeddings, vector databases, web UI, or hosted multi-tenant service.
