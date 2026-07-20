@@ -3,3 +3,4 @@ __pycache__/
 .pytest_cache/
 .memora/
 .memora-demo/
+docs/
