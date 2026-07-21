@@ -8,7 +8,10 @@ import sys
 from .config import MemoryConfig
 from .errors import MemoraError
 from .manager import MemoryManager
+from .embeddings import EMBEDDING_PROVIDER_CHOICES
+from .reranker import RERANKER_CHOICES
 from .schema import MemoryCandidate, SessionMessage
+from .vector_store import VECTOR_STORE_CHOICES
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -20,6 +23,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--backend", choices=("file", "sqlite"), default="file", help="Memory storage backend.")
     parser.add_argument("--sqlite-path", help="SQLite database path when --backend sqlite is used.")
     parser.add_argument("--no-fts", action="store_true", help="Disable SQLite FTS candidate recall.")
+    parser.add_argument("--rag", action="store_true", help="Enable deterministic local RAG retrieval and vector indexing.")
+    parser.add_argument("--embedding-provider", default="hash", choices=EMBEDDING_PROVIDER_CHOICES, help="Embedding provider for RAG.")
+    parser.add_argument("--vector-store", default="sqlite", choices=VECTOR_STORE_CHOICES, help="Vector store for RAG.")
+    parser.add_argument("--reranker", default="deterministic", choices=RERANKER_CHOICES, help="Reranker for RAG.")
     subparsers = parser.add_subparsers(dest="command")
 
     subparsers.add_parser("init", help="Initialize a Memora runtime directory.")
@@ -104,16 +111,19 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    manager = MemoryManager(
-        MemoryConfig(
-            root_dir=args.root,
-            memory_backend=args.backend,
-            sqlite_path=args.sqlite_path,
-            fts_enabled=not args.no_fts,
-        )
-    )
-
     try:
+        manager = MemoryManager(
+            MemoryConfig(
+                root_dir=args.root,
+                memory_backend=args.backend,
+                sqlite_path=args.sqlite_path,
+                fts_enabled=not args.no_fts,
+                rag_enabled=args.rag,
+                embedding_provider=args.embedding_provider,
+                vector_store=args.vector_store,
+                reranker=args.reranker,
+            )
+        )
         return _run_command(args, manager, parser)
     except MemoraError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -232,6 +242,14 @@ def _run_command(args, manager: MemoryManager, parser: argparse.ArgumentParser) 
     if args.command == "verify":
         report = manager.verify_memories()
         print(f"verified {report['checked']} memories index_ok={report['index_ok']} errors={len(report['errors'])}")
+        if "vector_ok" in report:
+            print(
+                f"vector_ok={report['vector_ok']} "
+                f"missing={len(report['vector_missing'])} "
+                f"orphans={len(report['vector_orphans'])} "
+                f"mismatches={len(report['embedding_mismatches'])} "
+                f"sync_errors={len(report.get('rag_sync_errors', []))}"
+            )
         for error in report["errors"]:
             print(f"error: {error}")
         return 0

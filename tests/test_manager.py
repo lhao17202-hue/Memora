@@ -11,6 +11,17 @@ def manager_for(tmp_path: Path) -> MemoryManager:
     return MemoryManager(MemoryConfig(root_dir=str(tmp_path / ".memora")))
 
 
+def test_memory_search_result_rag_score_defaults():
+    from memora.schema import MemoryItem, MemorySearchResult
+
+    item = MemoryItem(id="mem_1", name="language", description="desc", type="user", content="content")
+    result = MemorySearchResult(item, 0.5, 0.5, 0.5, 0.0, 0.5)
+
+    assert result.semantic_score == 0.0
+    assert result.keyword_score == 0.0
+    assert result.rerank_score is None
+
+
 def test_save_retrieve_and_format_memory(tmp_path: Path):
     manager = manager_for(tmp_path)
     manager.init_storage()

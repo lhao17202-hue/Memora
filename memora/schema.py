@@ -108,6 +108,9 @@ class MemorySearchResult:
     access_score: float
     final_score: float
     reason: str = ""
+    semantic_score: float = 0.0
+    keyword_score: float = 0.0
+    rerank_score: float | None = None
 
 
 @dataclass

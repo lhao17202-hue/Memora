@@ -13,6 +13,16 @@ class MemoryConfig:
     sqlite_path: str | Path | None = None
     fts_enabled: bool = True
     fts_candidate_limit: int = 100
+    rag_enabled: bool = False
+    embedding_provider: str = "hash"
+    embedding_model: str = "memora-hash-v1"
+    embedding_dimension: int = 384
+    vector_store: str = "sqlite"
+    vector_path: str | Path | None = None
+    vector_candidate_limit: int = 50
+    keyword_candidate_limit: int = 50
+    reranker: str = "deterministic"
+    rerank_candidate_limit: int = 100
     max_retrieved_memories: int = 8
     max_memory_prompt_tokens: int = 2000
     max_memory_content_chars: int = 4000

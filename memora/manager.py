@@ -12,6 +12,7 @@ from .formatter import MemoryFormatter
 from .lifecycle import LifecycleManager
 from .policy import MemoryPolicy
 from .portable import backup_memories, export_memories, import_memories, rebuild_index, verify_memories
+from .rag import RagIndex, RagRetriever, build_embedding_provider, build_reranker, build_vector_store
 from .retriever import MemoryRetriever
 from .schema import (
     MemoryCandidate,
@@ -45,6 +46,24 @@ class MemoryManager:
         self.retriever = MemoryRetriever()
         self.formatter = MemoryFormatter()
         self.lifecycle = LifecycleManager(self.config)
+        self.rag_index: RagIndex | None = None
+        self.rag_retriever: RagRetriever | None = None
+        self._rag_sync_errors: list[dict[str, str]] = []
+        if self.config.rag_enabled:
+            embedder = build_embedding_provider(self.config)
+            vector_store = build_vector_store(self.config)
+            reranker = build_reranker(self.config)
+            self.rag_index = RagIndex(self.memory_store, embedder, vector_store)
+            candidate_store = self.memory_store if isinstance(self.memory_store, MemoryCandidateStore) else None
+            self.rag_retriever = RagRetriever(
+                self.memory_store,
+                candidate_store,
+                embedder,
+                vector_store,
+                self.retriever,
+                reranker,
+                self.config,
+            )
 
     def _build_memory_store(self) -> MemoryStore:
         if self.config.memory_backend == "file":
@@ -56,6 +75,29 @@ class MemoryManager:
     def init_storage(self) -> None:
         self.memory_store.init_storage()
         self.session_store.init_storage()
+        if self.rag_index is not None:
+            self.rag_index.init_storage()
+
+    def _record_rag_sync_error(self, operation: str, memory_id: str, exc: Exception) -> None:
+        self._rag_sync_errors.append({"operation": operation, "memory_id": memory_id, "error": str(exc)})
+
+    def _sync_rag_memory(self, item: MemoryItem) -> None:
+        if self.rag_index is None:
+            return
+        try:
+            self.rag_index.sync_memory(item)
+        except Exception as exc:  # noqa: BLE001 - memory writes should degrade when RAG sync fails
+            self._record_rag_sync_error("sync", item.id, exc)
+            return
+
+    def _delete_rag_memory(self, memory_id: str) -> None:
+        if self.rag_index is None:
+            return
+        try:
+            self.rag_index.delete_memory(memory_id)
+        except Exception as exc:  # noqa: BLE001 - lifecycle writes should degrade when RAG cleanup fails
+            self._record_rag_sync_error("delete", memory_id, exc)
+            return
 
     def _write_result_from_decision(self, decision: MemoryCandidate, memory: MemoryItem | None = None) -> MemoryWriteResult:
         if decision.action == "create":
@@ -125,12 +167,14 @@ class MemoryManager:
         if decision.action == "create":
             item = self._new_memory_from_candidate(decision)
             saved = self.memory_store.save_memory(item)
+            self._sync_rag_memory(saved)
             return self._write_result_from_decision(decision, memory=saved)
         if decision.action == "update" and decision.target_memory_id:
             existing = self.memory_store.get_memory(decision.target_memory_id)
             if existing is None:
                 raise MemoryNotFoundError(f"memory not found: {decision.target_memory_id}")
             updated = self._apply_candidate_update(existing, decision)
+            self._sync_rag_memory(updated)
             return self._write_result_from_decision(decision, memory=updated)
         return self._write_result_from_decision(decision)
 
@@ -176,10 +220,14 @@ class MemoryManager:
             existing = self.memory_store.get_memory(decision.target_memory_id)
             if existing is None:
                 raise ValueError("target memory missing for update")
-            return self._apply_candidate_update(existing, candidate)
+            updated = self._apply_candidate_update(existing, candidate)
+            self._sync_rag_memory(updated)
+            return updated
 
         item = self._new_memory_from_candidate(decision)
-        return self.memory_store.save_memory(item)
+        saved = self.memory_store.save_memory(item)
+        self._sync_rag_memory(saved)
+        return saved
 
     def list_memories(self, include_archived: bool = False) -> list[MemoryItem]:
         return self.memory_store.list_memories(include_archived=include_archived)
@@ -236,6 +284,8 @@ class MemoryManager:
             include_knowledge=include_knowledge,
         )
         validate_memory_query(memory_query)
+        if self.rag_retriever is not None:
+            return self.rag_retriever.retrieve(memory_query)
         return self.retriever.retrieve(self._candidate_memories(memory_query), memory_query)
 
     def update_memory(
@@ -262,31 +312,55 @@ class MemoryManager:
             memory.confidence = confidence
         memory.updated_at = now_utc()
         validate_memory_item(memory)
-        return self.memory_store.update_memory(memory)
+        updated = self.memory_store.update_memory(memory)
+        self._sync_rag_memory(updated)
+        return updated
 
     def archive_memory(self, identifier: str) -> MemoryItem:
-        return self.memory_store.set_memory_status(identifier, "archived")
+        archived = self.memory_store.set_memory_status(identifier, "archived")
+        self._delete_rag_memory(archived.id)
+        return archived
 
     def restore_memory(self, identifier: str) -> MemoryItem:
-        return self.memory_store.set_memory_status(identifier, "active")
+        restored = self.memory_store.set_memory_status(identifier, "active")
+        self._sync_rag_memory(restored)
+        return restored
 
     def delete_memory(self, identifier: str, hard: bool = False) -> None:
         if hard:
+            memory = self.memory_store.get_memory(identifier)
+            memory_id = memory.id if memory is not None else identifier
             self.memory_store.hard_delete_memory(identifier)
+            self._delete_rag_memory(memory_id)
             return
-        self.memory_store.set_memory_status(identifier, "deleted")
+        deleted = self.memory_store.set_memory_status(identifier, "deleted")
+        self._delete_rag_memory(deleted.id)
 
     def export_memories(self, path: str | Path) -> dict:
         return export_memories(self.memory_store, path)
 
     def import_memories(self, path: str | Path) -> dict:
-        return import_memories(self.memory_store, path)
+        report = import_memories(self.memory_store, path)
+        if self.rag_index is not None and report.get("imported", 0) > 0:
+            try:
+                self.rag_index.rebuild()
+            except Exception as exc:  # noqa: BLE001 - import should preserve authoritative writes when RAG rebuild fails
+                self._record_rag_sync_error("rebuild", "*", exc)
+        return report
 
     def verify_memories(self) -> dict:
-        return verify_memories(self.memory_store)
+        report = verify_memories(self.memory_store)
+        if self.rag_index is not None:
+            report.update(self.rag_index.verify())
+            report["rag_sync_errors"] = list(self._rag_sync_errors)
+            report["vector_ok"] = report["vector_ok"] and not report["rag_sync_errors"]
+        return report
 
     def rebuild_index(self) -> None:
         rebuild_index(self.memory_store)
+        if self.rag_index is not None:
+            self.rag_index.rebuild()
+            self._rag_sync_errors.clear()
 
     def backup(self, path: str | Path) -> dict:
         return backup_memories(self.memory_store, path)
@@ -328,7 +402,8 @@ class MemoryManager:
             decision = self.lifecycle.decide(memory)
             if decision == "archive":
                 memory.status = "archived"
-                self.memory_store.update_memory(memory)
+                archived = self.memory_store.update_memory(memory)
+                self._delete_rag_memory(archived.id)
                 report["archived"] += 1
             else:
                 report["kept"] += 1

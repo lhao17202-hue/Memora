@@ -1,3 +1,4 @@
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -23,6 +24,9 @@ def test_python_module_help_exits_zero():
     assert result.returncode == 0
     assert "Memora" in result.stdout
     assert "init" in result.stdout
+    assert "--rag" in result.stdout
+    assert "openai" in result.stdout.lower()
+    assert "qdrant" in result.stdout.lower()
 
 
 def test_init_save_list_show_search_clean(tmp_path: Path):
@@ -287,6 +291,54 @@ def test_sqlite_backend_cli_memory_and_session_flow(tmp_path: Path):
     assert session.returncode == 0
     assert "hello" in session.stdout
     assert (root / "sessions" / "default" / "session_1.json").exists()
+
+def test_reserved_rag_provider_reports_clear_cli_error(tmp_path: Path):
+    root = tmp_path / ".memora"
+
+    result = run_cli(root, "--rag", "--embedding-provider", "openai", "init")
+
+    assert result.returncode == 1
+    assert "reserved but not implemented" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_sqlite_backend_rag_cli_flow(tmp_path: Path):
+    root = tmp_path / ".memora"
+
+    initialized = run_cli(root, "--backend", "sqlite", "--rag", "init")
+    saved = run_cli(
+        root,
+        "--backend",
+        "sqlite",
+        "--rag",
+        "save",
+        "--type",
+        "user",
+        "--name",
+        "language",
+        "--description",
+        "用户偏好中文。",
+        "--content",
+        "用户偏好使用中文回答。",
+    )
+    searched = run_cli(root, "--backend", "sqlite", "--rag", "search", "中文回答")
+    verified = run_cli(root, "--backend", "sqlite", "--rag", "verify")
+    rebuilt = run_cli(root, "--backend", "sqlite", "--rag", "rebuild-index")
+
+    with sqlite3.connect(root / "memora.sqlite3") as connection:
+        vector_count = connection.execute("SELECT COUNT(*) FROM memory_vectors").fetchone()[0]
+
+    assert initialized.returncode == 0
+    assert saved.returncode == 0
+    assert searched.returncode == 0
+    assert "language" in searched.stdout
+    assert verified.returncode == 0
+    assert "verified 1 memories" in verified.stdout
+    assert "index_ok=True" in verified.stdout
+    assert "vector_ok=True" in verified.stdout
+    assert rebuilt.returncode == 0
+    assert "rebuilt index" in rebuilt.stdout
+    assert vector_count == 1
 
 
 def test_remember_command_creates_and_updates_candidate_memory(tmp_path: Path):

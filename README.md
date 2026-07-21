@@ -68,6 +68,28 @@ python -m memora --root .memora --backend sqlite rebuild-index
 
 SQLite FTS is used for candidate recall only. Final ranking still uses Memora's deterministic scoring. Chinese short-query fallback is preserved.
 
+## RAG v1
+
+RAG is disabled by default. Enable the deterministic local RAG path with `--rag`:
+
+```bash
+python -m memora --root .memora --backend sqlite --rag init
+python -m memora --root .memora --backend sqlite --rag save --type user --name language --description "用户偏好中文。" --content "用户偏好使用中文回答。"
+python -m memora --root .memora --backend sqlite --rag search "中文回答"
+python -m memora --root .memora --backend sqlite --rag verify
+python -m memora --root .memora --backend sqlite --rag rebuild-index
+```
+
+RAG v1 supports only the local `hash` embedding provider, `sqlite` vector store, and `none` or `deterministic` rerankers. Future provider names such as `openai`, `qdrant`, and `chroma` are reserved in one registry but report `reserved but not implemented` if selected.
+
+`verify` prints vector diagnostics when RAG is enabled:
+
+```text
+vector_ok=True missing=0 orphans=0 mismatches=0 sync_errors=0
+```
+
+`rebuild-index` rebuilds both the normal memory index and the RAG vector index when `--rag` is enabled. JSON `import` also syncs imported active memories into the vector index.
+
 Memory storage is scoped by `user_id`, `project_id`, `workspace_id`, and name so different scopes can keep the same memory name independently. Name-based operations such as `show`, `update`, `archive`, and `delete` remain unscoped in the current CLI/API, so use memory IDs when duplicate names exist across scopes.
 
 Session history remains JSON-file backed in this phase, even when `--backend sqlite` is used for memories.
@@ -179,4 +201,4 @@ The demo uses `MemoryRuntime` with a local fake assistant response. It does not 
 
 ## MVP boundaries
 
-This version does not include LLM-based extraction, embeddings, vector databases, web UI, or hosted multi-tenant service.
+This version includes a deterministic local RAG v1 path: hash embeddings, a SQLite-backed vector index, hybrid vector + keyword retrieval, and RAG verify/rebuild diagnostics. It does not include LLM-based extraction, external embedding providers, hosted vector databases, model rerankers, web UI, or hosted multi-tenant service.

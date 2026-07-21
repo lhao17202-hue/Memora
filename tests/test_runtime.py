@@ -19,6 +19,12 @@ def make_sqlite_runtime(tmp_path: Path) -> MemoryRuntime:
     return runtime
 
 
+def make_rag_runtime(tmp_path: Path) -> MemoryRuntime:
+    runtime = MemoryRuntime(config=MemoryConfig(root_dir=tmp_path / ".memora", memory_backend="sqlite", rag_enabled=True))
+    runtime.init_storage()
+    return runtime
+
+
 def test_build_context_returns_formatted_memory(tmp_path: Path):
     runtime = make_runtime(tmp_path)
     runtime.manager.save_memory(
@@ -133,6 +139,28 @@ def test_sqlite_runtime_save_retrieve_remember_and_mark_used(tmp_path: Path):
     assert reloaded is not None
     assert reloaded.access_count == 1
     assert reloaded.last_accessed_at is not None
+
+
+def test_rag_runtime_uses_existing_top_level_api(tmp_path: Path):
+    runtime = make_rag_runtime(tmp_path)
+
+    created = runtime.remember_extracted(
+        memory_type="user",
+        name="language",
+        description="用户偏好中文。",
+        content="用户偏好使用中文回答。",
+    )
+    results = runtime.retrieve_context("中文回答")
+    context = runtime.build_context("中文回答")
+    runtime.mark_context_used(results)
+    reloaded = runtime.manager.get_memory("language")
+
+    assert created.action == "created"
+    assert len(results) == 1
+    assert results[0].semantic_score > 0
+    assert "用户偏好使用中文回答。" in context
+    assert reloaded is not None
+    assert reloaded.access_count == 1
 
 
 def test_remember_extracted_rejects_secret_without_policy_exception(tmp_path: Path):
