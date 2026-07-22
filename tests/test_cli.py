@@ -341,6 +341,28 @@ def test_sqlite_backend_rag_cli_flow(tmp_path: Path):
     assert vector_count == 1
 
 
+def test_remember_command_omitted_weight_uses_type_default(tmp_path: Path):
+    root = tmp_path / ".memora"
+
+    result = run_cli(
+        root,
+        "remember",
+        "--type",
+        "user",
+        "--name",
+        "language",
+        "--description",
+        "用户偏好中文。",
+        "--content",
+        "用户偏好中文回答。",
+    )
+    shown = run_cli(root, "show", "language")
+
+    assert result.returncode == 0
+    assert "created" in result.stdout
+    assert shown.returncode == 0
+
+
 def test_remember_command_creates_and_updates_candidate_memory(tmp_path: Path):
     root = tmp_path / ".memora"
 

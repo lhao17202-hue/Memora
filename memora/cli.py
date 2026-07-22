@@ -45,7 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     remember_parser.add_argument("--source")
     remember_parser.add_argument("--session", dest="session_id")
     remember_parser.add_argument("--tag", action="append", dest="tags")
-    remember_parser.add_argument("--weight", type=int, default=5)
+    remember_parser.add_argument("--weight", type=int)
     remember_parser.add_argument("--confidence", type=float, default=1.0)
 
     list_parser = subparsers.add_parser("list", help="List memories.")
