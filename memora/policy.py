@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from .config import MemoryConfig
 from .schema import MemoryCandidate, MemoryItem
 from .utils import slugify
 
@@ -39,6 +40,9 @@ NOISE_PATTERNS = [
 
 
 class MemoryPolicy:
+    def __init__(self, config: MemoryConfig | None = None):
+        self.config = config or MemoryConfig()
+
     def contains_secret(self, text: str) -> bool:
         return any(pattern.search(text or "") for pattern in SECRET_PATTERNS)
 
@@ -48,7 +52,7 @@ class MemoryPolicy:
 
     def is_noisy_output(self, text: str) -> bool:
         value = text or ""
-        return any(pattern.search(value) for pattern in NOISE_PATTERNS) or len(value) > 4000
+        return any(pattern.search(value) for pattern in NOISE_PATTERNS) or len(value) > self.config.max_memory_content_chars
 
     def find_duplicate(self, candidate: MemoryCandidate, existing: list[MemoryItem]) -> MemoryItem | None:
         wanted = slugify(candidate.name)

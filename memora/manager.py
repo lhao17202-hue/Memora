@@ -42,7 +42,7 @@ class MemoryManager:
         self.memory_store = memory_store or self._build_memory_store()
         self.session_store = session_store or FileSessionStore(self.config)
         self.session_service = SessionService(self.session_store)
-        self.policy = MemoryPolicy()
+        self.policy = MemoryPolicy(self.config)
         self.retriever = MemoryRetriever()
         self.formatter = MemoryFormatter()
         self.lifecycle = LifecycleManager(self.config)

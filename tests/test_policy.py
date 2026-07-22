@@ -1,3 +1,4 @@
+from memora.config import MemoryConfig
 from memora.policy import MemoryPolicy
 from memora.schema import MemoryCandidate, MemoryItem
 
@@ -31,6 +32,24 @@ def test_rejects_noisy_output():
 
     assert result.action == "reject"
     assert result.reason == "noisy_output"
+
+
+def test_noisy_output_uses_configured_content_length_limit():
+    policy = MemoryPolicy(MemoryConfig(max_memory_content_chars=10))
+
+    result = policy.evaluate(candidate("x" * 11), [])
+
+    assert result.action == "reject"
+    assert result.reason == "noisy_output"
+
+
+def test_content_under_configured_length_is_not_noisy_by_length():
+    policy = MemoryPolicy(MemoryConfig(max_memory_content_chars=20))
+
+    result = policy.evaluate(candidate("durable"), [])
+
+    assert result.action == "create"
+    assert result.reason == "accepted"
 
 
 def test_same_name_updates_existing_memory():
