@@ -102,3 +102,22 @@ def test_conflict_requires_confirmation_for_same_type_different_content():
     assert result.action == "ask_user"
     assert result.target_memory_id == "mem_1"
     assert result.reason == "conflict_requires_confirmation"
+
+
+def test_conflict_confirmation_can_be_disabled():
+    policy = MemoryPolicy(MemoryConfig(require_confirmation_for_conflicts=False))
+    existing = [
+        MemoryItem(
+            id="mem_1",
+            name="user-language-en",
+            description="User prefers English.",
+            type="user",
+            content="用户偏好英文回答。",
+        )
+    ]
+
+    result = policy.evaluate(candidate("用户偏好中文回答。", name="user-language-zh"), existing)
+
+    assert result.action == "create"
+    assert result.reason == "accepted"
+    assert result.target_memory_id is None

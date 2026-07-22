@@ -110,7 +110,7 @@ class MemoryPolicy:
             candidate.reason = "duplicate_or_same_key"
             return candidate
         conflict = self.find_conflict(candidate, existing)
-        if conflict:
+        if conflict and self.config.require_confirmation_for_conflicts:
             candidate.action = "ask_user"
             candidate.target_memory_id = conflict.id
             candidate.reason = "conflict_requires_confirmation"

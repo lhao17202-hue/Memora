@@ -355,6 +355,27 @@ def test_same_memory_name_is_isolated_across_explicit_projects(tmp_path: Path):
     assert [result.memory.id for result in project_b_results] == [project_b.id]
 
 
+def test_conflict_confirmation_disabled_creates_new_memory(tmp_path: Path):
+    manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", require_confirmation_for_conflicts=False))
+    manager.init_storage()
+    existing = manager.save_memory("user", "用户偏好英文回答。", "用户偏好英文。", name="language-en")
+    candidate = MemoryCandidate(
+        action="create",
+        type="user",
+        name="language-zh",
+        description="用户偏好中文。",
+        content="用户偏好中文回答。",
+        source="runtime_extraction",
+    )
+
+    result = manager.remember_candidate(candidate)
+
+    assert result.action == "created"
+    assert result.memory is not None
+    assert result.memory.id != existing.id
+    assert result.reason == "accepted"
+
+
 def test_remember_candidate_rejects_secret_without_raising_policy_error(tmp_path: Path):
     manager = manager_for(tmp_path)
     manager.init_storage()
