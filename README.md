@@ -185,9 +185,18 @@ python -m memora --root .memora remember --type user --name language --descripti
 
 Policy outcomes such as `rejected` and `requires_confirmation` are returned as normal write results for agent workflows.
 
-## Configuration caveats
+## Configuration behavior
 
-Some configuration fields are placeholders for the next policy pass. Retrieval limits and lifecycle cleanup settings are active, but policy-related fields such as `max_memory_content_chars`, default memory weights, auto-save switches, and conflict-confirmation behavior are not fully wired through every write path yet.
+Memora's policy-related configuration fields are active in the manager/runtime write paths:
+
+- `max_memory_content_chars` controls the noisy-output content length limit.
+- omitted write weights use type-specific defaults such as `default_user_weight`, `default_feedback_weight`, `default_project_weight`, `default_summary_weight`, and `default_tool_experience_weight`.
+- explicit write weights are preserved.
+- `allow_auto_save_user_preferences` and `allow_auto_save_project_facts` control whether automatic `runtime_extraction`, `session_extraction`, and `conversation` candidates can be written without confirmation.
+- disabled auto-save returns `requires_confirmation`, not `rejected`.
+- `require_confirmation_for_conflicts` controls whether simple deterministic conflicts require confirmation.
+
+Manual writes remain allowed unless rejected by safety, transient-state, noisy-output, or conflict policy.
 
 ## Agent runtime demo
 
