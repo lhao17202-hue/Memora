@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import subprocess
 import sys
@@ -361,6 +362,90 @@ def test_remember_command_omitted_weight_uses_type_default(tmp_path: Path):
     assert result.returncode == 0
     assert "created" in result.stdout
     assert shown.returncode == 0
+    assert "status: active" in shown.stdout
+    assert "source: runtime_extraction" in shown.stdout
+    assert "weight: 9" in shown.stdout
+    assert "tags:" in shown.stdout
+
+
+def test_remember_command_json_created_result(tmp_path: Path):
+    root = tmp_path / ".memora"
+
+    result = run_cli(
+        root,
+        "remember",
+        "--type",
+        "user",
+        "--name",
+        "language",
+        "--description",
+        "用户偏好中文。",
+        "--content",
+        "用户偏好中文回答。",
+        "--json",
+    )
+
+    payload = json.loads(result.stdout)
+    assert result.returncode == 0
+    assert payload["action"] == "created"
+    assert payload["reason"] == "accepted"
+    assert payload["memory"]["name"] == "language"
+    assert payload["candidate"]["content"] == "用户偏好中文回答。"
+    assert payload["candidate"]["suggested_action"] == "create"
+
+
+def test_remember_command_json_rejected_result(tmp_path: Path):
+    root = tmp_path / ".memora"
+
+    result = run_cli(
+        root,
+        "remember",
+        "--type",
+        "user",
+        "--name",
+        "secret",
+        "--description",
+        "secret",
+        "--content",
+        "api_key = sk-abcdef123456",
+        "--json",
+    )
+
+    payload = json.loads(result.stdout)
+    assert result.returncode == 0
+    assert payload["action"] == "rejected"
+    assert payload["reason"] == "contains_secret"
+    assert payload["memory"] is None
+    assert payload["candidate"]["content"] == "api_key = sk-abcdef123456"
+
+
+def test_remember_command_json_confirmation_includes_candidate_and_target(tmp_path: Path):
+    root = tmp_path / ".memora"
+    assert run_cli(root, "save", "--type", "project", "--name", "framework", "--description", "old", "--content", "old content").returncode == 0
+
+    result = run_cli(
+        root,
+        "remember",
+        "--type",
+        "project",
+        "--name",
+        "framework",
+        "--description",
+        "new desc",
+        "--content",
+        "new content",
+        "--json",
+    )
+
+    payload = json.loads(result.stdout)
+    assert result.returncode == 0
+    assert payload["action"] == "requires_confirmation"
+    assert payload["reason"] == "auto_save_project_facts_disabled"
+    assert payload["target_memory_id"] is not None
+    assert payload["memory"] is None
+    assert payload["candidate"]["content"] == "new content"
+    assert payload["candidate"]["suggested_action"] == "update"
+    assert payload["candidate"]["target_memory_id"] == payload["target_memory_id"]
 
 
 def test_remember_command_creates_and_updates_candidate_memory(tmp_path: Path):
@@ -403,6 +488,9 @@ def test_remember_command_creates_and_updates_candidate_memory(tmp_path: Path):
     assert "updated" in updated.stdout
     assert "duplicate_or_same_key" in updated.stdout
     assert "updated content" in shown.stdout
+    assert "source: runtime_extraction" in shown.stdout
+    assert "tags:" in shown.stdout
+    assert "status: active" in shown.stdout
 
 
 def test_remember_command_rejects_secret_as_normal_policy_result(tmp_path: Path):

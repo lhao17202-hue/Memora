@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from dataclasses import replace
 from pathlib import Path
 
 from .config import MemoryConfig
@@ -197,6 +198,44 @@ class MemoryManager:
             self._sync_rag_memory(updated)
             return self._write_result_from_decision(decision, memory=updated)
         return self._write_result_from_decision(decision)
+
+    def confirm_memory_candidate(
+        self,
+        candidate: MemoryCandidate,
+        action: str | None = None,
+        target_memory_id: str | None = None,
+    ) -> MemoryWriteResult:
+        if candidate.action != "ask_user":
+            raise MemoryPolicyError("candidate does not require confirmation")
+        candidate = self._resolve_candidate_defaults(candidate)
+        validate_memory_candidate(candidate)
+        if self.policy.contains_secret(candidate.content):
+            raise MemoryPolicyError("memory rejected: contains_secret")
+        if self.policy.is_transient_task_state(candidate.content):
+            raise MemoryPolicyError("memory rejected: transient_task_state")
+        if self.policy.is_noisy_output(candidate.content):
+            raise MemoryPolicyError("memory rejected: noisy_output")
+        confirmed_action = action or candidate.suggested_action or ("update" if (target_memory_id or candidate.target_memory_id) else "create")
+        if confirmed_action not in {"create", "update"}:
+            raise MemoryValidationError(f"unsupported confirmation action: {confirmed_action}")
+        confirmed = replace(candidate)
+        confirmed.action = confirmed_action
+        confirmed.target_memory_id = target_memory_id or candidate.target_memory_id
+        confirmed.reason = f"confirmed:{candidate.reason}" if candidate.reason else "confirmed"
+        if confirmed_action == "create":
+            confirmed.target_memory_id = None
+            item = self._new_memory_from_candidate(confirmed)
+            saved = self.memory_store.save_memory(item)
+            self._sync_rag_memory(saved)
+            return self._write_result_from_decision(confirmed, memory=saved)
+        if confirmed.target_memory_id is None:
+            raise MemoryValidationError("target_memory_id is required for confirmed update")
+        existing = self.memory_store.get_memory(confirmed.target_memory_id)
+        if existing is None:
+            raise MemoryNotFoundError(f"memory not found: {confirmed.target_memory_id}")
+        updated = self._apply_candidate_update(existing, confirmed)
+        self._sync_rag_memory(updated)
+        return self._write_result_from_decision(confirmed, memory=updated)
 
     def save_memory(
         self,

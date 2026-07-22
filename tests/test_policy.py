@@ -50,6 +50,17 @@ def test_content_under_configured_length_is_not_noisy_by_length():
 
     assert result.action == "create"
     assert result.reason == "accepted"
+    assert result.suggested_action == "create"
+
+
+def test_policy_evaluate_is_decision_only_and_does_not_resolve_weight():
+    item = candidate("durable")
+
+    result = MemoryPolicy().evaluate(item, [])
+
+    assert result.action == "create"
+    assert result.weight is None
+    assert result.suggested_action == "create"
 
 
 def test_auto_save_user_preferences_disabled_requires_confirmation():
@@ -62,6 +73,23 @@ def test_auto_save_user_preferences_disabled_requires_confirmation():
 
     assert result.action == "ask_user"
     assert result.reason == "auto_save_user_preferences_disabled"
+    assert result.target_memory_id is None
+    assert result.suggested_action == "create"
+
+
+def test_auto_save_user_preferences_disabled_duplicate_includes_update_target():
+    policy = MemoryPolicy(MemoryConfig(allow_auto_save_user_preferences=False))
+    existing = [MemoryItem(id="mem_1", name="language", description="old", type="user", content="old")]
+    item = candidate("用户偏好中文回答。", name="language")
+    item.source = "runtime_extraction"
+    item.type = "user"
+
+    result = policy.evaluate(item, existing)
+
+    assert result.action == "ask_user"
+    assert result.reason == "auto_save_user_preferences_disabled"
+    assert result.target_memory_id == "mem_1"
+    assert result.suggested_action == "update"
 
 
 def test_auto_save_project_facts_disabled_requires_confirmation():
@@ -74,6 +102,7 @@ def test_auto_save_project_facts_disabled_requires_confirmation():
 
     assert result.action == "ask_user"
     assert result.reason == "auto_save_project_facts_disabled"
+    assert result.suggested_action == "create"
 
 
 def test_same_name_updates_existing_memory():
@@ -83,6 +112,7 @@ def test_same_name_updates_existing_memory():
 
     assert result.action == "update"
     assert result.target_memory_id == "mem_1"
+    assert result.suggested_action == "update"
     assert result.reason == "duplicate_or_same_key"
 
 
@@ -101,6 +131,7 @@ def test_conflict_requires_confirmation_for_same_type_different_content():
 
     assert result.action == "ask_user"
     assert result.target_memory_id == "mem_1"
+    assert result.suggested_action == "update"
     assert result.reason == "conflict_requires_confirmation"
 
 

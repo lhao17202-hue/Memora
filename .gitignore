@@ -1,6 +1,25 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+
+# Python packaging/build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Local environments and tooling caches
+.venv/
+venv/
+.coverage
+htmlcov/
+.ruff_cache/
+.mypy_cache/
+
+# Local Memora/demo runtime data
 .memora/
 .memora-demo/
+.memora-openai-demo/
+
 docs/
+.claude/

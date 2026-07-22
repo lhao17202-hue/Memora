@@ -26,12 +26,29 @@ pip install -e .[dev]
 pytest
 ```
 
+## Release verification
+
+CI runs the same lightweight checks expected before an alpha release:
+
+```bash
+python -m pip install -e ".[dev]"
+pytest
+python -m pip install build
+python -m build
+python -m pip install --force-reinstall dist/*.whl
+python -c "import memora; print(memora.__version__)"
+memora --help
+```
+
+The build step verifies both source and wheel distributions. Memora remains local-first: the core package has no hosted service, LLM, or external vector database dependency.
+
 ## CLI quickstart
 
 ```bash
 python -m memora --root .memora init
 python -m memora --root .memora save --type user --name language --description "用户偏好中文。" --content "用户偏好使用中文回答。"
 python -m memora --root .memora remember --type user --name language --description "用户偏好中文。" --content "用户偏好使用中文回答。" --session session_1 --tag preference
+python -m memora --root .memora remember --type user --name language-json --description "用户偏好中文。" --content "用户偏好使用中文回答。" --json
 python -m memora --root .memora list
 python -m memora --root .memora search "中文回答"
 python -m memora --root .memora show language
@@ -157,6 +174,21 @@ runtime.remember_message("session_1", "assistant", "建议做 runtime integratio
 runtime.remember_summary("session_1", "用户认可最简单的 runtime integration。")
 ```
 
+Minimal agent integration pattern:
+
+1. Retrieve memory context before the external agent call with `runtime.retrieve_context(...)` or `runtime.build_context(...)`.
+2. Store user and assistant messages with `runtime.remember_message(...)`.
+3. Let the external runtime, not Memora, extract candidate memories.
+4. Pass candidates to `runtime.remember_extracted(...)` so Memora can deterministically create, update, reject, or require confirmation.
+5. If `result.action == "requires_confirmation"`, ask the user before calling `runtime.confirm_memory_candidate(result.candidate)`.
+
+On Windows PowerShell, if Chinese CLI output renders incorrectly, switch the console to UTF-8 before running examples:
+
+```powershell
+chcp 65001
+$OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+```
+
 ## Agent memory write pipeline
 
 Memora does not call an LLM to extract memories. External RAG or LLM agent runtimes can extract candidate memories, then pass those candidates to Memora for deterministic validation, policy evaluation, writing, updating, rejection, or confirmation handling.
@@ -183,7 +215,23 @@ For CLI debugging, use `remember` to simulate an agent-extracted candidate memor
 python -m memora --root .memora remember --type user --name language --description "用户偏好中文。" --content "用户偏好使用中文回答。" --session session_1
 ```
 
-Policy outcomes such as `rejected` and `requires_confirmation` are returned as normal write results for agent workflows.
+Policy outcomes such as `rejected` and `requires_confirmation` are returned as normal write results for agent workflows. `MemoryPolicy` is decision-only: direct policy calls do not resolve omitted defaults such as `weight`. Use `MemoryManager` or `MemoryRuntime` APIs for persistence-ready decisions.
+
+`requires_confirmation` results include the pending candidate, a `suggested_action`, and `target_memory_id` when confirmation would update an existing memory. Agent runtimes can pass the returned candidate back after user approval:
+
+```python
+result = runtime.remember_extracted(
+    memory_type="user",
+    name="language",
+    description="用户偏好中文。",
+    content="用户偏好中文回答。",
+)
+if result.action == "requires_confirmation" and result.candidate is not None:
+    confirmed = runtime.confirm_memory_candidate(result.candidate)
+    print(confirmed.action, confirmed.memory.id if confirmed.memory else None)
+```
+
+CLI `remember --json` prints machine-readable write results with `action`, `reason`, `target_memory_id`, `memory`, and `candidate` fields for agent runtime debugging.
 
 ## Configuration behavior
 

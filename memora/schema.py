@@ -23,6 +23,7 @@ MemoryType = Literal[
 MemoryStatus = Literal["active", "archived", "deleted"]
 
 CandidateAction = Literal["create", "update", "archive", "delete", "reject", "ask_user"]
+SuggestedAction = Literal["create", "update"]
 
 VALID_MEMORY_TYPES = (
     "user",
@@ -39,6 +40,8 @@ VALID_MEMORY_TYPES = (
 VALID_MEMORY_STATUSES = ("active", "archived", "deleted")
 
 VALID_CANDIDATE_ACTIONS = ("create", "update", "archive", "delete", "reject", "ask_user")
+
+VALID_SUGGESTED_ACTIONS = ("create", "update")
 
 VALID_SESSION_ROLES = ("user", "assistant", "system", "tool")
 
@@ -82,6 +85,7 @@ class MemoryCandidate:
     confidence: float = 1.0
     weight: int | None = None
     target_memory_id: str | None = None
+    suggested_action: SuggestedAction | None = None
     reason: str = ""
 
 
@@ -164,6 +168,11 @@ def validate_candidate_action(value: str) -> None:
         raise MemoryValidationError(f"invalid candidate action: {value}")
 
 
+def validate_suggested_action(value: str) -> None:
+    if value not in VALID_SUGGESTED_ACTIONS:
+        raise MemoryValidationError(f"invalid suggested action: {value}")
+
+
 def _validate_weight(weight: int) -> None:
     if not isinstance(weight, int) or weight < 1 or weight > 10:
         raise MemoryValidationError("weight must be an integer from 1 to 10")
@@ -193,6 +202,8 @@ def validate_memory_candidate(candidate: MemoryCandidate) -> None:
     _require_non_empty_string(candidate.description, "candidate description")
     _require_non_empty_string(candidate.content, "candidate content")
     validate_memory_type(candidate.type)
+    if candidate.suggested_action is not None:
+        validate_suggested_action(candidate.suggested_action)
     if candidate.weight is not None:
         _validate_weight(candidate.weight)
     _validate_confidence(candidate.confidence)

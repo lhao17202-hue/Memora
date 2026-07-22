@@ -82,5 +82,13 @@ class MemoryRuntime:
         )
         return self.manager.remember_candidate(candidate)
 
+    def confirm_memory_candidate(
+        self,
+        candidate: MemoryCandidate,
+        action: str | None = None,
+        target_memory_id: str | None = None,
+    ) -> MemoryWriteResult:
+        return self.manager.confirm_memory_candidate(candidate, action=action, target_memory_id=target_memory_id)
+
     def mark_context_used(self, results: list[MemorySearchResult]) -> None:
         self.manager.mark_memories_used(results)

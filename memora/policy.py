@@ -85,6 +85,12 @@ class MemoryPolicy:
         return None
 
     def evaluate(self, candidate: MemoryCandidate, existing: list[MemoryItem]) -> MemoryCandidate:
+        """Return a deterministic policy decision for a candidate.
+
+        This method normalizes and annotates the candidate, but it does not
+        resolve manager-owned defaults such as omitted write weights. Use
+        MemoryManager APIs for persistence-ready decisions and writes.
+        """
         candidate.name = slugify(candidate.name)
         if self.contains_secret(candidate.content):
             candidate.action = "reject"
@@ -98,21 +104,30 @@ class MemoryPolicy:
             candidate.action = "reject"
             candidate.reason = "noisy_output"
             return candidate
+
+        duplicate = self.find_duplicate(candidate, existing)
+        conflict = None if duplicate else self.find_conflict(candidate, existing)
+        if duplicate:
+            candidate.target_memory_id = duplicate.id
+            candidate.suggested_action = "update"
+        elif conflict and self.config.require_confirmation_for_conflicts:
+            candidate.target_memory_id = conflict.id
+            candidate.suggested_action = "update"
+        else:
+            candidate.target_memory_id = None
+            candidate.suggested_action = "create"
+
         auto_save_reason = self.requires_auto_save_confirmation(candidate)
         if auto_save_reason:
             candidate.action = "ask_user"
             candidate.reason = auto_save_reason
             return candidate
-        duplicate = self.find_duplicate(candidate, existing)
         if duplicate:
             candidate.action = "update"
-            candidate.target_memory_id = duplicate.id
             candidate.reason = "duplicate_or_same_key"
             return candidate
-        conflict = self.find_conflict(candidate, existing)
         if conflict and self.config.require_confirmation_for_conflicts:
             candidate.action = "ask_user"
-            candidate.target_memory_id = conflict.id
             candidate.reason = "conflict_requires_confirmation"
             return candidate
         candidate.action = "create"

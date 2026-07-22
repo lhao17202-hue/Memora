@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+from dataclasses import asdict
+from datetime import datetime
 
 from .config import MemoryConfig
 from .errors import MemoraError
@@ -47,6 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     remember_parser.add_argument("--tag", action="append", dest="tags")
     remember_parser.add_argument("--weight", type=int)
     remember_parser.add_argument("--confidence", type=float, default=1.0)
+    remember_parser.add_argument("--json", action="store_true", help="Print machine-readable JSON output.")
 
     list_parser = subparsers.add_parser("list", help="List memories.")
     list_parser.add_argument("--archived", action="store_true", help="List archived memories only.")
@@ -130,7 +134,26 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
 
-def _print_write_result(result) -> None:
+def _json_default(value):
+    if isinstance(value, datetime):
+        return value.isoformat()
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
+def _write_result_to_dict(result) -> dict:
+    return {
+        "action": result.action,
+        "reason": result.reason,
+        "target_memory_id": result.target_memory_id,
+        "memory": asdict(result.memory) if result.memory is not None else None,
+        "candidate": asdict(result.candidate) if result.candidate is not None else None,
+    }
+
+
+def _print_write_result(result, json_output: bool = False) -> None:
+    if json_output:
+        print(json.dumps(_write_result_to_dict(result), ensure_ascii=False, default=_json_default))
+        return
     if result.action in {"created", "updated"} and result.memory is not None:
         print(f"{result.action} {result.memory.id} {result.memory.name} {result.reason}")
         return
@@ -174,7 +197,7 @@ def _run_command(args, manager: MemoryManager, parser: argparse.ArgumentParser) 
             confidence=args.confidence,
         )
         result = manager.remember_candidate(candidate)
-        _print_write_result(result)
+        _print_write_result(result, json_output=args.json)
         return 0
 
     if args.command == "list":
@@ -195,6 +218,10 @@ def _run_command(args, manager: MemoryManager, parser: argparse.ArgumentParser) 
         print(f"id: {item.id}")
         print(f"name: {item.name}")
         print(f"type: {item.type}")
+        print(f"status: {item.status}")
+        print(f"source: {item.source}")
+        print(f"weight: {item.weight}")
+        print(f"tags: {', '.join(item.tags)}")
         print(f"description: {item.description}")
         print(item.content)
         return 0

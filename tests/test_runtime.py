@@ -186,6 +186,29 @@ def test_runtime_remember_extracted_respects_disabled_auto_save(tmp_path: Path):
     assert result.action == "requires_confirmation"
     assert result.reason == "auto_save_user_preferences_disabled"
     assert result.memory is None
+    assert result.candidate is not None
+    assert result.candidate.content == "用户偏好中文回答。"
+    assert result.candidate.suggested_action == "create"
+
+
+def test_runtime_confirm_memory_candidate_persists_pending_candidate(tmp_path: Path):
+    runtime = MemoryRuntime(config=MemoryConfig(root_dir=tmp_path / ".memora", allow_auto_save_user_preferences=False))
+    runtime.init_storage()
+    pending = runtime.remember_extracted(
+        memory_type="user",
+        name="language",
+        description="用户偏好中文。",
+        content="用户偏好中文回答。",
+    )
+
+    confirmed = runtime.confirm_memory_candidate(pending.candidate)
+    results = runtime.retrieve_context("中文回答")
+
+    assert confirmed.action == "created"
+    assert confirmed.memory is not None
+    assert confirmed.memory.name == "language"
+    assert len(results) == 1
+    assert results[0].memory.id == confirmed.memory.id
 
 
 def test_remember_extracted_rejects_secret_without_policy_exception(tmp_path: Path):

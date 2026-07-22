@@ -413,4 +413,298 @@ def test_remember_candidate_reports_conflict_without_writing(tmp_path: Path):
     assert result.memory is None
     assert result.reason == "conflict_requires_confirmation"
     assert result.target_memory_id == existing.id
+    assert result.candidate is not None
+    assert result.candidate.suggested_action == "update"
     assert manager.memory_store.get_memory("language-zh") is None
+
+
+def test_evaluate_memory_candidate_returns_enriched_confirmation(tmp_path: Path):
+    manager = MemoryManager(
+        MemoryConfig(root_dir=tmp_path / ".memora", allow_auto_save_user_preferences=False, default_user_weight=10)
+    )
+    manager.init_storage()
+    candidate = MemoryCandidate(
+        action="create",
+        type="user",
+        name="language",
+        description="用户偏好中文。",
+        content="用户偏好中文回答。",
+        source="runtime_extraction",
+    )
+
+    result = manager.evaluate_memory_candidate(candidate)
+
+    assert result.action == "requires_confirmation"
+    assert result.memory is None
+    assert result.reason == "auto_save_user_preferences_disabled"
+    assert result.target_memory_id is None
+    assert result.candidate is not None
+    assert result.candidate.content == "用户偏好中文回答。"
+    assert result.candidate.weight == 10
+    assert result.candidate.suggested_action == "create"
+
+
+def test_disabled_auto_save_duplicate_requires_confirmation_with_target(tmp_path: Path):
+    manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", allow_auto_save_user_preferences=False))
+    manager.init_storage()
+    existing = manager.save_memory("user", "old content", "old desc", name="language", source="manual")
+    candidate = MemoryCandidate(
+        action="create",
+        type="user",
+        name="language",
+        description="new desc",
+        content="new content",
+        source="runtime_extraction",
+    )
+
+    result = manager.remember_candidate(candidate)
+
+    assert result.action == "requires_confirmation"
+    assert result.memory is None
+    assert result.target_memory_id == existing.id
+    assert result.candidate is not None
+    assert result.candidate.target_memory_id == existing.id
+    assert result.candidate.suggested_action == "update"
+    assert result.candidate.content == "new content"
+    assert manager.memory_store.get_memory(existing.id).content == "old content"
+
+
+def test_confirm_memory_candidate_creates_after_confirmation(tmp_path: Path):
+    manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", allow_auto_save_user_preferences=False))
+    manager.init_storage()
+    pending = manager.remember_candidate(
+        MemoryCandidate(
+            action="create",
+            type="user",
+            name="language",
+            description="用户偏好中文。",
+            content="用户偏好中文回答。",
+            source="runtime_extraction",
+        )
+    )
+
+    confirmed = manager.confirm_memory_candidate(pending.candidate)
+
+    assert confirmed.action == "created"
+    assert confirmed.reason == "confirmed:auto_save_user_preferences_disabled"
+    assert confirmed.memory is not None
+    assert confirmed.memory.name == "language"
+    assert manager.memory_store.get_memory("language") is not None
+
+
+def test_confirm_memory_candidate_updates_duplicate_target(tmp_path: Path):
+    manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", allow_auto_save_user_preferences=False))
+    manager.init_storage()
+    existing = manager.save_memory("user", "old content", "old desc", name="language", source="manual")
+    pending = manager.remember_candidate(
+        MemoryCandidate(
+            action="create",
+            type="user",
+            name="language",
+            description="new desc",
+            content="new content",
+            source="runtime_extraction",
+        )
+    )
+
+    confirmed = manager.confirm_memory_candidate(pending.candidate)
+
+    assert confirmed.action == "updated"
+    assert confirmed.memory is not None
+    assert confirmed.memory.id == existing.id
+    assert confirmed.memory.content == "new content"
+    assert len(manager.memory_store.list_memories(include_archived=True)) == 1
+
+
+def test_confirm_memory_candidate_updates_conflict_target(tmp_path: Path):
+    manager = manager_for(tmp_path)
+    manager.init_storage()
+    existing = manager.save_memory("user", "用户偏好英文回答。", "用户偏好英文。", name="language-en")
+    pending = manager.remember_candidate(
+        MemoryCandidate(
+            action="create",
+            type="user",
+            name="language-zh",
+            description="用户偏好中文。",
+            content="用户偏好中文回答。",
+        )
+    )
+
+    confirmed = manager.confirm_memory_candidate(pending.candidate)
+
+    assert confirmed.action == "updated"
+    assert confirmed.memory is not None
+    assert confirmed.memory.id == existing.id
+    assert confirmed.memory.content == "用户偏好中文回答。"
+
+
+def test_confirm_memory_candidate_rejects_non_confirmation_candidate(tmp_path: Path):
+    manager = manager_for(tmp_path)
+    candidate = MemoryCandidate(action="create", type="user", name="language", description="desc", content="content")
+
+    try:
+        manager.confirm_memory_candidate(candidate)
+    except MemoryPolicyError as exc:
+        assert "does not require confirmation" in str(exc)
+    else:
+        raise AssertionError("expected MemoryPolicyError")
+
+
+def test_confirm_memory_candidate_rejects_secret_candidate_without_writing(tmp_path: Path):
+    manager = manager_for(tmp_path)
+    manager.init_storage()
+    candidate = MemoryCandidate(
+        action="ask_user",
+        suggested_action="create",
+        type="user",
+        name="secret",
+        description="secret",
+        content="api_key = sk-abcdef123456",
+        reason="auto_save_user_preferences_disabled",
+    )
+
+    try:
+        manager.confirm_memory_candidate(candidate)
+    except MemoryPolicyError as exc:
+        assert "contains_secret" in str(exc)
+    else:
+        raise AssertionError("expected MemoryPolicyError")
+
+    assert manager.memory_store.get_memory("secret") is None
+
+
+def test_confirm_memory_candidate_rejects_transient_candidate_without_writing(tmp_path: Path):
+    manager = manager_for(tmp_path)
+    manager.init_storage()
+    candidate = MemoryCandidate(
+        action="ask_user",
+        suggested_action="create",
+        type="user",
+        name="transient",
+        description="transient",
+        content="下一步：实现 CLI",
+        reason="auto_save_user_preferences_disabled",
+    )
+
+    try:
+        manager.confirm_memory_candidate(candidate)
+    except MemoryPolicyError as exc:
+        assert "transient_task_state" in str(exc)
+    else:
+        raise AssertionError("expected MemoryPolicyError")
+
+    assert manager.memory_store.get_memory("transient") is None
+
+
+def test_confirm_memory_candidate_rejects_noisy_candidate_without_writing(tmp_path: Path):
+    manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", max_memory_content_chars=10))
+    manager.init_storage()
+    candidate = MemoryCandidate(
+        action="ask_user",
+        suggested_action="create",
+        type="user",
+        name="noisy",
+        description="noisy",
+        content="x" * 11,
+        reason="auto_save_user_preferences_disabled",
+    )
+
+    try:
+        manager.confirm_memory_candidate(candidate)
+    except MemoryPolicyError as exc:
+        assert "noisy_output" in str(exc)
+    else:
+        raise AssertionError("expected MemoryPolicyError")
+
+    assert manager.memory_store.get_memory("noisy") is None
+
+
+def test_confirm_memory_candidate_rejects_invalid_suggested_action(tmp_path: Path):
+    manager = manager_for(tmp_path)
+    candidate = MemoryCandidate(
+        action="ask_user",
+        suggested_action="delete",
+        type="user",
+        name="language",
+        description="desc",
+        content="content",
+        reason="auto_save_user_preferences_disabled",
+    )
+
+    try:
+        manager.confirm_memory_candidate(candidate)
+    except MemoryValidationError as exc:
+        assert "suggested action" in str(exc)
+    else:
+        raise AssertionError("expected MemoryValidationError")
+
+
+def test_confirm_memory_candidate_update_requires_target(tmp_path: Path):
+    manager = manager_for(tmp_path)
+    candidate = MemoryCandidate(
+        action="ask_user",
+        suggested_action="update",
+        type="user",
+        name="language",
+        description="desc",
+        content="content",
+        reason="auto_save_user_preferences_disabled",
+    )
+
+    try:
+        manager.confirm_memory_candidate(candidate)
+    except MemoryValidationError as exc:
+        assert "target_memory_id" in str(exc)
+    else:
+        raise AssertionError("expected MemoryValidationError")
+
+
+def test_confirm_memory_candidate_missing_target_raises_not_found(tmp_path: Path):
+    manager = manager_for(tmp_path)
+    candidate = MemoryCandidate(
+        action="ask_user",
+        suggested_action="update",
+        target_memory_id="missing",
+        type="user",
+        name="language",
+        description="desc",
+        content="content",
+        reason="auto_save_user_preferences_disabled",
+    )
+
+    try:
+        manager.confirm_memory_candidate(candidate)
+    except MemoryNotFoundError as exc:
+        assert "missing" in str(exc)
+    else:
+        raise AssertionError("expected MemoryNotFoundError")
+
+
+def test_confirm_memory_candidate_syncs_rag_index(tmp_path: Path):
+    manager = MemoryManager(
+        MemoryConfig(
+            root_dir=tmp_path / ".memora",
+            memory_backend="sqlite",
+            rag_enabled=True,
+            allow_auto_save_user_preferences=False,
+        )
+    )
+    manager.init_storage()
+    pending = manager.remember_candidate(
+        MemoryCandidate(
+            action="create",
+            type="user",
+            name="language",
+            description="用户偏好中文。",
+            content="用户偏好中文回答。",
+            source="runtime_extraction",
+        )
+    )
+
+    confirmed = manager.confirm_memory_candidate(pending.candidate)
+    results = manager.retrieve_memory("中文回答")
+
+    assert confirmed.action == "created"
+    assert len(results) == 1
+    assert results[0].memory.id == confirmed.memory.id
+    assert results[0].semantic_score > 0
