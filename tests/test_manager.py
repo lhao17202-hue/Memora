@@ -22,6 +22,39 @@ def test_memory_search_result_rag_score_defaults():
     assert result.rerank_score is None
 
 
+def test_save_memory_uses_config_default_weight_when_omitted(tmp_path: Path):
+    manager = MemoryManager(
+        MemoryConfig(
+            root_dir=tmp_path / ".memora",
+            default_user_weight=10,
+            default_feedback_weight=8,
+            default_project_weight=6,
+            default_summary_weight=4,
+            default_tool_experience_weight=3,
+        )
+    )
+
+    user = manager.save_memory("user", "prefers Chinese", "language", name="user-language")
+    feedback = manager.save_memory("feedback", "likes concise answers", "style", name="feedback-style")
+    project = manager.save_memory("project", "uses pytest", "tests", name="project-tests")
+    summary = manager.save_memory("session_summary", "session summary", "summary", name="session-summary")
+    tool = manager.save_memory("tool_experience", "pytest worked", "tool", name="tool-pytest")
+
+    assert user.weight == 10
+    assert feedback.weight == 8
+    assert project.weight == 6
+    assert summary.weight == 4
+    assert tool.weight == 3
+
+
+def test_explicit_weight_is_preserved_over_config_default(tmp_path: Path):
+    manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", default_user_weight=10))
+
+    item = manager.save_memory("user", "prefers Chinese", "language", name="language", weight=5)
+
+    assert item.weight == 5
+
+
 def test_save_retrieve_and_format_memory(tmp_path: Path):
     manager = manager_for(tmp_path)
     manager.init_storage()

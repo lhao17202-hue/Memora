@@ -78,6 +78,15 @@ def test_remember_summary_saves_session_summary_memory(tmp_path: Path):
     assert item.content == "summary text"
 
 
+def test_remember_summary_uses_config_default_summary_weight(tmp_path: Path):
+    runtime = MemoryRuntime(config=MemoryConfig(root_dir=tmp_path / ".memora", default_summary_weight=7))
+    runtime.init_storage()
+
+    item = runtime.remember_summary("session_1", "summary text")
+
+    assert item.weight == 7
+
+
 def test_constructor_rejects_manager_and_config_together(tmp_path: Path):
     manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora"))
 

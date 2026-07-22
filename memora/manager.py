@@ -118,7 +118,25 @@ class MemoryManager:
             target_memory_id=decision.target_memory_id,
         )
 
+    def _default_weight_for_type(self, memory_type: str) -> int:
+        if memory_type == "user":
+            return self.config.default_user_weight
+        if memory_type == "feedback":
+            return self.config.default_feedback_weight
+        if memory_type == "session_summary":
+            return self.config.default_summary_weight
+        if memory_type == "tool_experience":
+            return self.config.default_tool_experience_weight
+        return self.config.default_project_weight
+
+    def _resolve_candidate_defaults(self, candidate: MemoryCandidate) -> MemoryCandidate:
+        if candidate.weight is None:
+            candidate.weight = self._default_weight_for_type(candidate.type)
+        return candidate
+
     def _new_memory_from_candidate(self, decision: MemoryCandidate) -> MemoryItem:
+        if decision.weight is None:
+            decision.weight = self._default_weight_for_type(decision.type)
         now = now_utc()
         item = MemoryItem(
             id=f"mem_{uuid.uuid4().hex[:12]}",
@@ -151,6 +169,7 @@ class MemoryManager:
         return self.memory_store.update_memory(existing)
 
     def evaluate_memory_candidate(self, candidate: MemoryCandidate) -> MemoryWriteResult:
+        candidate = self._resolve_candidate_defaults(candidate)
         validate_memory_candidate(candidate)
         decision = self.policy.evaluate(
             candidate,
@@ -159,6 +178,7 @@ class MemoryManager:
         return self._write_result_from_decision(decision)
 
     def remember_candidate(self, candidate: MemoryCandidate) -> MemoryWriteResult:
+        candidate = self._resolve_candidate_defaults(candidate)
         validate_memory_candidate(candidate)
         decision = self.policy.evaluate(
             candidate,
@@ -188,7 +208,7 @@ class MemoryManager:
         project_id: str | None = None,
         workspace_id: str | None = None,
         tags: list[str] | None = None,
-        weight: int = 5,
+        weight: int | None = None,
         confidence: float = 1.0,
         source: str = "manual",
     ) -> MemoryItem:
@@ -206,6 +226,7 @@ class MemoryManager:
             confidence=confidence,
             weight=weight,
         )
+        candidate = self._resolve_candidate_defaults(candidate)
         validate_memory_candidate(candidate)
         decision = self.policy.evaluate(
             candidate,

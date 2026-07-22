@@ -80,7 +80,7 @@ class MemoryCandidate:
     tags: list[str] = field(default_factory=list)
     source: str = "conversation"
     confidence: float = 1.0
-    weight: int = 5
+    weight: int | None = None
     target_memory_id: str | None = None
     reason: str = ""
 
@@ -193,7 +193,8 @@ def validate_memory_candidate(candidate: MemoryCandidate) -> None:
     _require_non_empty_string(candidate.description, "candidate description")
     _require_non_empty_string(candidate.content, "candidate content")
     validate_memory_type(candidate.type)
-    _validate_weight(candidate.weight)
+    if candidate.weight is not None:
+        _validate_weight(candidate.weight)
     _validate_confidence(candidate.confidence)
 
 

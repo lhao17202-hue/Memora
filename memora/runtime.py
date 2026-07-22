@@ -56,7 +56,7 @@ class MemoryRuntime:
         workspace_id: str | None = None,
         session_id: str | None = None,
         tags: list[str] | None = None,
-        weight: int = 5,
+        weight: int | None = None,
         confidence: float = 1.0,
     ) -> MemoryWriteResult:
         candidate_tags = list(tags or [])
