@@ -172,6 +172,22 @@ def test_rag_runtime_uses_existing_top_level_api(tmp_path: Path):
     assert reloaded.access_count == 1
 
 
+def test_runtime_remember_extracted_respects_disabled_auto_save(tmp_path: Path):
+    runtime = MemoryRuntime(config=MemoryConfig(root_dir=tmp_path / ".memora", allow_auto_save_user_preferences=False))
+    runtime.init_storage()
+
+    result = runtime.remember_extracted(
+        memory_type="user",
+        name="language",
+        description="用户偏好中文。",
+        content="用户偏好中文回答。",
+    )
+
+    assert result.action == "requires_confirmation"
+    assert result.reason == "auto_save_user_preferences_disabled"
+    assert result.memory is None
+
+
 def test_remember_extracted_rejects_secret_without_policy_exception(tmp_path: Path):
     runtime = make_runtime(tmp_path)
 

@@ -274,6 +274,41 @@ def test_remember_candidate_updates_duplicate_memory(tmp_path: Path):
     assert result.target_memory_id == original.id
 
 
+def test_disabled_auto_save_user_returns_confirmation_without_writing(tmp_path: Path):
+    manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", allow_auto_save_user_preferences=False))
+    manager.init_storage()
+    candidate = MemoryCandidate(
+        action="create",
+        type="user",
+        name="language",
+        description="用户偏好中文。",
+        content="用户偏好中文回答。",
+        source="runtime_extraction",
+    )
+
+    result = manager.remember_candidate(candidate)
+
+    assert result.action == "requires_confirmation"
+    assert result.reason == "auto_save_user_preferences_disabled"
+    assert result.memory is None
+    assert manager.memory_store.list_memories() == []
+
+
+def test_manual_save_ignores_auto_save_disabled(tmp_path: Path):
+    manager = MemoryManager(
+        MemoryConfig(
+            root_dir=tmp_path / ".memora",
+            allow_auto_save_user_preferences=False,
+            allow_auto_save_project_facts=False,
+        )
+    )
+
+    item = manager.save_memory("user", "用户偏好中文回答。", "用户偏好中文。", name="language", source="manual")
+
+    assert item.name == "language"
+    assert item.source == "manual"
+
+
 def test_same_memory_name_is_isolated_across_users(tmp_path: Path):
     manager = manager_for(tmp_path)
     manager.init_storage()

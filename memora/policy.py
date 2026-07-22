@@ -39,6 +39,9 @@ NOISE_PATTERNS = [
 ]
 
 
+AUTO_SAVE_SOURCES = {"conversation", "runtime_extraction", "session_extraction"}
+
+
 class MemoryPolicy:
     def __init__(self, config: MemoryConfig | None = None):
         self.config = config or MemoryConfig()
@@ -53,6 +56,15 @@ class MemoryPolicy:
     def is_noisy_output(self, text: str) -> bool:
         value = text or ""
         return any(pattern.search(value) for pattern in NOISE_PATTERNS) or len(value) > self.config.max_memory_content_chars
+
+    def requires_auto_save_confirmation(self, candidate: MemoryCandidate) -> str | None:
+        if candidate.source not in AUTO_SAVE_SOURCES:
+            return None
+        if candidate.type == "user" and not self.config.allow_auto_save_user_preferences:
+            return "auto_save_user_preferences_disabled"
+        if candidate.type == "project" and not self.config.allow_auto_save_project_facts:
+            return "auto_save_project_facts_disabled"
+        return None
 
     def find_duplicate(self, candidate: MemoryCandidate, existing: list[MemoryItem]) -> MemoryItem | None:
         wanted = slugify(candidate.name)
@@ -85,6 +97,11 @@ class MemoryPolicy:
         if self.is_noisy_output(candidate.content):
             candidate.action = "reject"
             candidate.reason = "noisy_output"
+            return candidate
+        auto_save_reason = self.requires_auto_save_confirmation(candidate)
+        if auto_save_reason:
+            candidate.action = "ask_user"
+            candidate.reason = auto_save_reason
             return candidate
         duplicate = self.find_duplicate(candidate, existing)
         if duplicate:

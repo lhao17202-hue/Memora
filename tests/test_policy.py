@@ -52,6 +52,30 @@ def test_content_under_configured_length_is_not_noisy_by_length():
     assert result.reason == "accepted"
 
 
+def test_auto_save_user_preferences_disabled_requires_confirmation():
+    policy = MemoryPolicy(MemoryConfig(allow_auto_save_user_preferences=False))
+    item = candidate("用户偏好中文回答。", name="language")
+    item.source = "runtime_extraction"
+    item.type = "user"
+
+    result = policy.evaluate(item, [])
+
+    assert result.action == "ask_user"
+    assert result.reason == "auto_save_user_preferences_disabled"
+
+
+def test_auto_save_project_facts_disabled_requires_confirmation():
+    policy = MemoryPolicy(MemoryConfig(allow_auto_save_project_facts=False))
+    item = candidate("Project uses pytest.", name="test-framework")
+    item.source = "session_extraction"
+    item.type = "project"
+
+    result = policy.evaluate(item, [])
+
+    assert result.action == "ask_user"
+    assert result.reason == "auto_save_project_facts_disabled"
+
+
 def test_same_name_updates_existing_memory():
     existing = [MemoryItem(id="mem_1", name="user-language", description="old", type="user", content="old")]
 
