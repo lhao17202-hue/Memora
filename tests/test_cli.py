@@ -509,6 +509,93 @@ def test_confirm_command_reports_stale_candidate_without_overwriting(tmp_path: P
     assert "first content" not in shown.stdout
 
 
+def test_confirm_command_rejects_create_override_when_current_policy_suggests_update(tmp_path: Path):
+    root = tmp_path / ".memora"
+    candidate_path = tmp_path / "candidate.json"
+    assert run_cli(root, "save", "--type", "project", "--name", "framework", "--description", "old desc", "--content", "old content").returncode == 0
+    pending = run_cli(
+        root,
+        "remember",
+        "--type",
+        "project",
+        "--name",
+        "framework",
+        "--description",
+        "new desc",
+        "--content",
+        "new content",
+        "--json",
+    )
+    candidate_path.write_text(pending.stdout, encoding="utf-8")
+
+    confirmed = run_cli(root, "confirm", "--candidate", str(candidate_path), "--action", "create", "--json")
+    shown = run_cli(root, "show", "framework")
+
+    assert confirmed.returncode == 1
+    assert "confirmed action" in confirmed.stderr
+    assert "old content" in shown.stdout
+    assert "new content" not in shown.stdout
+
+
+def test_confirm_command_rejects_target_override_that_differs_from_current_policy_target(tmp_path: Path):
+    root = tmp_path / ".memora"
+    candidate_path = tmp_path / "candidate.json"
+    assert run_cli(root, "save", "--type", "project", "--name", "a", "--description", "a old desc", "--content", "a old content").returncode == 0
+    b = run_cli(root, "save", "--type", "project", "--name", "b", "--description", "b old desc", "--content", "b old content")
+    b_id = b.stdout.split()[1]
+    pending = run_cli(
+        root,
+        "remember",
+        "--type",
+        "project",
+        "--name",
+        "a",
+        "--description",
+        "a new desc",
+        "--content",
+        "a new content",
+        "--json",
+    )
+    candidate_path.write_text(pending.stdout, encoding="utf-8")
+
+    confirmed = run_cli(root, "confirm", "--candidate", str(candidate_path), "--target", b_id, "--json")
+    shown_a = run_cli(root, "show", "a")
+    shown_b = run_cli(root, "show", "b")
+
+    assert confirmed.returncode == 1
+    assert "target_memory_id" in confirmed.stderr
+    assert "a old content" in shown_a.stdout
+    assert "b old content" in shown_b.stdout
+    assert "a new content" not in shown_a.stdout
+    assert "a new content" not in shown_b.stdout
+
+
+def test_confirm_command_accepts_utf16_candidate_file(tmp_path: Path):
+    root = tmp_path / ".memora"
+    candidate_path = tmp_path / "candidate.json"
+    pending = run_cli(
+        root,
+        "remember",
+        "--type",
+        "project",
+        "--name",
+        "framework",
+        "--description",
+        "Project test framework.",
+        "--content",
+        "Project uses pytest.",
+        "--json",
+    )
+    candidate_path.write_text(pending.stdout, encoding="utf-16")
+
+    confirmed = run_cli(root, "confirm", "--candidate", str(candidate_path), "--json")
+    payload = json.loads(confirmed.stdout)
+
+    assert confirmed.returncode == 0
+    assert payload["action"] == "created"
+    assert payload["memory"]["name"] == "framework"
+
+
 def test_remember_command_creates_and_updates_candidate_memory(tmp_path: Path):
     root = tmp_path / ".memora"
 

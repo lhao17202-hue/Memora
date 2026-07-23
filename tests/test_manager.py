@@ -589,6 +589,59 @@ def test_confirm_memory_candidate_detects_stale_update_target(tmp_path: Path):
     assert manager.get_memory(existing.id).content == "second content"
 
 
+def test_confirm_memory_candidate_rejects_create_override_when_current_policy_suggests_update(tmp_path: Path):
+    manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", allow_auto_save_user_preferences=False))
+    manager.init_storage()
+    existing = manager.save_memory("user", "old content", "old desc", name="language", source="manual")
+    pending = manager.remember_candidate(
+        MemoryCandidate(
+            action="create",
+            type="user",
+            name="language",
+            description="new desc",
+            content="new content",
+            source="runtime_extraction",
+        )
+    )
+
+    try:
+        manager.confirm_memory_candidate(pending.candidate, action="create")
+    except MemoryValidationError as exc:
+        assert "confirmed action" in str(exc)
+    else:
+        raise AssertionError("expected MemoryValidationError")
+
+    assert manager.get_memory(existing.id).content == "old content"
+    assert len(manager.memory_store.list_memories(include_archived=True)) == 1
+
+
+def test_confirm_memory_candidate_rejects_target_override_that_differs_from_current_policy_target(tmp_path: Path):
+    manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", allow_auto_save_user_preferences=False))
+    manager.init_storage()
+    target_a = manager.save_memory("user", "a old content", "a old desc", name="a", source="manual")
+    target_b = manager.save_memory("user", "b old content", "b old desc", name="b", source="manual")
+    pending = manager.remember_candidate(
+        MemoryCandidate(
+            action="create",
+            type="user",
+            name="a",
+            description="a new desc",
+            content="a new content",
+            source="runtime_extraction",
+        )
+    )
+
+    try:
+        manager.confirm_memory_candidate(pending.candidate, target_memory_id=target_b.id)
+    except MemoryValidationError as exc:
+        assert "target_memory_id" in str(exc)
+    else:
+        raise AssertionError("expected MemoryValidationError")
+
+    assert manager.get_memory(target_a.id).content == "a old content"
+    assert manager.get_memory(target_b.id).content == "b old content"
+
+
 def test_confirm_memory_candidate_rejects_non_confirmation_candidate(tmp_path: Path):
     manager = manager_for(tmp_path)
     candidate = MemoryCandidate(action="create", type="user", name="language", description="desc", content="content")

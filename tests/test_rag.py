@@ -8,6 +8,7 @@ from memora.manager import MemoryManager
 from memora.rag import build_embedding_provider, build_reranker, build_vector_metadata, build_vector_store
 from memora.reranker import DeterministicReranker, NoOpReranker
 from memora.schema import MemoryItem, MemoryQuery, MemorySearchResult
+from memora.vector_store import VectorSearchHit
 
 
 def test_rag_factories_support_only_v1_values(tmp_path):
@@ -51,6 +52,10 @@ def test_build_vector_metadata_tracks_hash_and_provider(tmp_path):
     assert metadata["model"] == "memora-hash-v1"
     assert metadata["dimension"] == 384
     assert metadata["text_hash"] != changed_metadata["text_hash"]
+
+
+def test_config_defaults_min_semantic_score_for_rag():
+    assert MemoryConfig().min_semantic_score == 0.25
 
 
 def test_rag_enabled_manager_retrieves_vector_synced_memory(tmp_path):
@@ -211,3 +216,81 @@ def test_rag_sync_failure_does_not_break_memory_write(tmp_path):
 
     assert repaired["vector_ok"] is True
     assert repaired["rag_sync_errors"] == []
+
+
+def test_rag_filters_low_semantic_only_candidates(tmp_path):
+    manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", rag_enabled=True, min_semantic_score=0.25))
+    manager.init_storage()
+    weak = manager.save_memory("user", "unrelated alpha", "unrelated", name="weak-vector")
+    allowed = {weak.id: weak}
+    merged = manager.rag_retriever._merge(
+        allowed,
+        [VectorSearchHit(memory_id=weak.id, score=0.10, metadata={})],
+        [],
+    )
+
+    results = manager.rag_retriever._score(MemoryQuery(query="missing lexical evidence"), merged)
+
+    assert results == []
+
+
+def test_rag_keeps_low_semantic_hybrid_candidate_when_keyword_matches(tmp_path):
+    manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", rag_enabled=True, min_semantic_score=0.25))
+    manager.init_storage()
+    hybrid = manager.save_memory("user", "pytest fixture details", "pytest fixture", name="hybrid")
+    allowed = {hybrid.id: hybrid}
+    merged = manager.rag_retriever._merge(
+        allowed,
+        [VectorSearchHit(memory_id=hybrid.id, score=0.10, metadata={})],
+        [hybrid],
+    )
+
+    results = manager.rag_retriever._score(MemoryQuery(query="pytest fixture"), merged)
+
+    assert [result.memory.id for result in results] == [hybrid.id]
+    assert results[0].semantic_score == 0.10
+    assert results[0].keyword_score > 0
+
+
+def test_rag_keyword_match_ranks_above_hash_vector_only_candidate(tmp_path):
+    manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", rag_enabled=True, min_semantic_score=0.25))
+    manager.init_storage()
+    vector_only = manager.save_memory("user", "unrelated content", "unrelated", name="vector-only", weight=1)
+    keyword = manager.save_memory("user", "pytest fixture details", "pytest fixture", name="keyword", weight=1)
+    allowed = {vector_only.id: vector_only, keyword.id: keyword}
+    merged = manager.rag_retriever._merge(
+        allowed,
+        [
+            VectorSearchHit(memory_id=vector_only.id, score=0.80, metadata={}),
+            VectorSearchHit(memory_id=keyword.id, score=0.10, metadata={}),
+        ],
+        [keyword],
+    )
+
+    results = manager.rag_retriever._score(MemoryQuery(query="pytest fixture"), merged)
+    results.sort(key=lambda result: result.final_score, reverse=True)
+
+    assert results[0].memory.id == keyword.id
+    assert results[0].reason in {"exact_name", "exact_description", "phrase_content", "tokens_tags", "partial_content"}
+
+
+def test_rag_merge_deduplicates_vector_and_keyword_candidates_by_memory_id(tmp_path):
+    manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", rag_enabled=True))
+    manager.init_storage()
+    shared = manager.save_memory("user", "shared retrieval marker", "shared retrieval marker", name="shared")
+    allowed = {shared.id: shared}
+    merged = manager.rag_retriever._merge(
+        allowed,
+        [
+            VectorSearchHit(memory_id=shared.id, score=0.20, metadata={}),
+            VectorSearchHit(memory_id=shared.id, score=0.40, metadata={}),
+        ],
+        [shared, shared],
+    )
+
+    results = manager.rag_retriever._score(MemoryQuery(query="shared retrieval marker"), merged)
+    ids = [result.memory.id for result in results]
+
+    assert ids == [shared.id]
+    assert results[0].semantic_score == 0.40
+    assert results[0].keyword_score > 0

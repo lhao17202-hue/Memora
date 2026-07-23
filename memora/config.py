@@ -21,6 +21,7 @@ class MemoryConfig:
     vector_path: str | Path | None = None
     vector_candidate_limit: int = 50
     keyword_candidate_limit: int = 50
+    min_semantic_score: float = 0.25
     reranker: str = "deterministic"
     rerank_candidate_limit: int = 100
     max_retrieved_memories: int = 8

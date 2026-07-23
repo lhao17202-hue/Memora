@@ -252,13 +252,15 @@ class RagRetriever:
                 access_score = min(math.log1p(memory.access_count) / math.log1p(20), 1.0)
             if semantic_score <= 0 and keyword_score <= 0:
                 continue
+            if keyword_score <= 0 and semantic_score < self.config.min_semantic_score:
+                continue
             similarity_score = max(semantic_score, keyword_score)
             final_score = (
-                semantic_score * 0.45
-                + keyword_score * 0.20
+                semantic_score * 0.25
+                + keyword_score * 0.35
                 + importance_score * 0.15
                 + recency_score * 0.15
-                + access_score * 0.05
+                + access_score * 0.10
             )
             results.append(
                 MemorySearchResult(

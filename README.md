@@ -107,6 +107,10 @@ vector_ok=True missing=0 orphans=0 mismatches=0 sync_errors=0
 
 `rebuild-index` rebuilds both the normal memory index and the RAG vector index when `--rag` is enabled. JSON `import` also syncs imported active memories into the vector index.
 
+### Deterministic retrieval quality
+
+Memora's local retrieval favors deterministic lexical evidence before broad semantic recall. Exact name and description matches rank highest, followed by adjacent content phrases, tag token matches, and partial content token matches. When RAG is enabled, the built-in hash-vector recall remains deterministic and local, but weak semantic-only candidates below `min_semantic_score` are filtered so exact and phrase keyword matches stay prominent.
+
 Memory storage is scoped by `user_id`, `project_id`, `workspace_id`, and name so different scopes can keep the same memory name independently. Name-based operations such as `show`, `update`, `archive`, and `delete` remain unscoped in the current CLI/API, so use memory IDs when duplicate names exist across scopes.
 
 Session history remains JSON-file backed in this phase, even when `--backend sqlite` is used for memories.
@@ -213,6 +217,13 @@ For CLI debugging, use `remember --json` to simulate an agent-extracted candidat
 
 ```bash
 python -m memora --root .memora remember --type user --name language --description "用户偏好中文。" --content "用户偏好使用中文回答。" --session session_1 --json > candidate.json
+python -m memora --root .memora confirm --candidate candidate.json --json
+```
+
+On Windows PowerShell, prefer explicit UTF-8 output for candidate files:
+
+```powershell
+python -m memora --root .memora remember --type user --name language --description "用户偏好中文。" --content "用户偏好使用中文回答。" --session session_1 --json | Set-Content -Encoding utf8 candidate.json
 python -m memora --root .memora confirm --candidate candidate.json --json
 ```
 

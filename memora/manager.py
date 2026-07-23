@@ -243,6 +243,10 @@ class MemoryManager:
                 return self._write_result_from_decision(fresh)
         if confirmed_action not in {"create", "update"}:
             raise MemoryValidationError(f"unsupported confirmation action: {confirmed_action}")
+        if confirmed_action != fresh.suggested_action:
+            raise MemoryValidationError(f"confirmed action must match current suggested action: {fresh.suggested_action}")
+        if target_memory_id is not None and target_memory_id != fresh.target_memory_id:
+            raise MemoryValidationError(f"target_memory_id must match current suggested target: {fresh.target_memory_id}")
         confirmed = replace(candidate)
         confirmed.action = confirmed_action
         confirmed.target_memory_id = target_memory_id or candidate.target_memory_id

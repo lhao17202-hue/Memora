@@ -167,6 +167,23 @@ def _candidate_from_dict(data: dict) -> MemoryCandidate:
     return MemoryCandidate(**values)
 
 
+def _load_candidate_json(path: str) -> dict:
+    last_error: Exception | None = None
+    for encoding in ("utf-8-sig", "utf-16"):
+        try:
+            with open(path, encoding=encoding) as file:
+                payload = json.load(file)
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            last_error = exc
+            continue
+        if not isinstance(payload, dict):
+            raise ValueError("candidate JSON must contain an object")
+        return payload
+    if last_error is not None:
+        raise last_error
+    raise ValueError("candidate JSON must contain an object")
+
+
 def _print_write_result(result, json_output: bool = False) -> None:
     if json_output:
         print(json.dumps(_write_result_to_dict(result), ensure_ascii=False, default=_json_default))
@@ -219,8 +236,7 @@ def _run_command(args, manager: MemoryManager, parser: argparse.ArgumentParser) 
 
     if args.command == "confirm":
         try:
-            with open(args.candidate, encoding="utf-8") as file:
-                payload = json.load(file)
+            payload = _load_candidate_json(args.candidate)
             candidate = _candidate_from_dict(payload)
         except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
             raise MemoryValidationError(f"invalid candidate JSON: {exc}") from exc
