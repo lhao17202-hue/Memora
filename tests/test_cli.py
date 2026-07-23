@@ -446,6 +446,67 @@ def test_remember_command_json_confirmation_includes_candidate_and_target(tmp_pa
     assert payload["candidate"]["content"] == "new content"
     assert payload["candidate"]["suggested_action"] == "update"
     assert payload["candidate"]["target_memory_id"] == payload["target_memory_id"]
+    assert payload["candidate"]["target_updated_at"] is not None
+
+
+def test_confirm_command_accepts_remember_json_candidate_file(tmp_path: Path):
+    root = tmp_path / ".memora"
+    candidate_path = tmp_path / "candidate.json"
+    pending = run_cli(
+        root,
+        "remember",
+        "--type",
+        "project",
+        "--name",
+        "framework",
+        "--description",
+        "Project test framework.",
+        "--content",
+        "Project uses pytest.",
+        "--json",
+    )
+    candidate_path.write_text(pending.stdout, encoding="utf-8")
+
+    confirmed = run_cli(root, "confirm", "--candidate", str(candidate_path), "--json")
+    payload = json.loads(confirmed.stdout)
+    shown = run_cli(root, "show", "framework")
+
+    assert pending.returncode == 0
+    assert confirmed.returncode == 0
+    assert payload["action"] == "created"
+    assert payload["memory"]["name"] == "framework"
+    assert "Project uses pytest." in shown.stdout
+
+
+def test_confirm_command_reports_stale_candidate_without_overwriting(tmp_path: Path):
+    root = tmp_path / ".memora"
+    candidate_path = tmp_path / "candidate.json"
+    pending = run_cli(
+        root,
+        "remember",
+        "--type",
+        "project",
+        "--name",
+        "framework",
+        "--description",
+        "first desc",
+        "--content",
+        "first content",
+        "--json",
+    )
+    candidate_path.write_text(pending.stdout, encoding="utf-8")
+    assert run_cli(root, "save", "--type", "project", "--name", "framework", "--description", "second desc", "--content", "second content").returncode == 0
+
+    confirmed = run_cli(root, "confirm", "--candidate", str(candidate_path), "--json")
+    payload = json.loads(confirmed.stdout)
+    shown = run_cli(root, "show", "framework")
+
+    assert confirmed.returncode == 0
+    assert payload["action"] == "requires_confirmation"
+    assert payload["reason"] == "confirmation_state_changed"
+    assert payload["candidate"]["suggested_action"] == "update"
+    assert "second content" in shown.stdout
+    assert "first content" not in shown.stdout
 
 
 def test_remember_command_creates_and_updates_candidate_memory(tmp_path: Path):

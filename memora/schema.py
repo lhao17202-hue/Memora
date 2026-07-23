@@ -85,6 +85,7 @@ class MemoryCandidate:
     confidence: float = 1.0
     weight: int | None = None
     target_memory_id: str | None = None
+    target_updated_at: datetime | None = None
     suggested_action: SuggestedAction | None = None
     reason: str = ""
 

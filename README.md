@@ -209,10 +209,11 @@ result = runtime.remember_extracted(
 print(result.action, result.reason)
 ```
 
-For CLI debugging, use `remember` to simulate an agent-extracted candidate memory:
+For CLI debugging, use `remember --json` to simulate an agent-extracted candidate memory and `confirm` to write a returned pending candidate after user approval:
 
 ```bash
-python -m memora --root .memora remember --type user --name language --description "用户偏好中文。" --content "用户偏好使用中文回答。" --session session_1
+python -m memora --root .memora remember --type user --name language --description "用户偏好中文。" --content "用户偏好使用中文回答。" --session session_1 --json > candidate.json
+python -m memora --root .memora confirm --candidate candidate.json --json
 ```
 
 Policy outcomes such as `rejected` and `requires_confirmation` are returned as normal write results for agent workflows. `MemoryPolicy` is decision-only: direct policy calls do not resolve omitted defaults such as `weight`. Use `MemoryManager` or `MemoryRuntime` APIs for persistence-ready decisions.
@@ -231,7 +232,7 @@ if result.action == "requires_confirmation" and result.candidate is not None:
     print(confirmed.action, confirmed.memory.id if confirmed.memory else None)
 ```
 
-CLI `remember --json` prints machine-readable write results with `action`, `reason`, `target_memory_id`, `memory`, and `candidate` fields for agent runtime debugging.
+CLI `remember --json` prints machine-readable write results with `action`, `reason`, `target_memory_id`, `memory`, and `candidate` fields for agent runtime debugging. If a pending candidate is later confirmed, Memora re-checks the current store state before writing; stale confirmations return a new `requires_confirmation` result instead of overwriting newer memory.
 
 ## Configuration behavior
 

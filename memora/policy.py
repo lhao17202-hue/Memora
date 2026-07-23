@@ -109,12 +109,15 @@ class MemoryPolicy:
         conflict = None if duplicate else self.find_conflict(candidate, existing)
         if duplicate:
             candidate.target_memory_id = duplicate.id
+            candidate.target_updated_at = duplicate.updated_at
             candidate.suggested_action = "update"
         elif conflict and self.config.require_confirmation_for_conflicts:
             candidate.target_memory_id = conflict.id
+            candidate.target_updated_at = conflict.updated_at
             candidate.suggested_action = "update"
         else:
             candidate.target_memory_id = None
+            candidate.target_updated_at = None
             candidate.suggested_action = "create"
 
         auto_save_reason = self.requires_auto_save_confirmation(candidate)

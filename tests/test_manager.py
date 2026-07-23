@@ -538,6 +538,57 @@ def test_confirm_memory_candidate_updates_conflict_target(tmp_path: Path):
     assert confirmed.memory.content == "用户偏好中文回答。"
 
 
+def test_confirm_memory_candidate_detects_stale_create_candidate_after_duplicate_appears(tmp_path: Path):
+    manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", allow_auto_save_user_preferences=False))
+    manager.init_storage()
+    pending = manager.remember_candidate(
+        MemoryCandidate(
+            action="create",
+            type="user",
+            name="language",
+            description="first desc",
+            content="first content",
+            source="runtime_extraction",
+        )
+    )
+    newer = manager.save_memory("user", "second content", "second desc", name="language", source="manual")
+
+    result = manager.confirm_memory_candidate(pending.candidate)
+
+    assert result.action == "requires_confirmation"
+    assert result.reason == "confirmation_state_changed"
+    assert result.target_memory_id == newer.id
+    assert result.candidate is not None
+    assert result.candidate.suggested_action == "update"
+    assert manager.get_memory(newer.id).content == "second content"
+
+
+def test_confirm_memory_candidate_detects_stale_update_target(tmp_path: Path):
+    manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", allow_auto_save_user_preferences=False))
+    manager.init_storage()
+    existing = manager.save_memory("user", "old content", "old desc", name="language", source="manual")
+    pending = manager.remember_candidate(
+        MemoryCandidate(
+            action="create",
+            type="user",
+            name="language",
+            description="first desc",
+            content="first content",
+            source="runtime_extraction",
+        )
+    )
+    manager.update_memory(existing.id, content="second content")
+
+    result = manager.confirm_memory_candidate(pending.candidate)
+
+    assert result.action == "requires_confirmation"
+    assert result.reason == "confirmation_state_changed"
+    assert result.target_memory_id == existing.id
+    assert result.candidate is not None
+    assert result.candidate.suggested_action == "update"
+    assert manager.get_memory(existing.id).content == "second content"
+
+
 def test_confirm_memory_candidate_rejects_non_confirmation_candidate(tmp_path: Path):
     manager = manager_for(tmp_path)
     candidate = MemoryCandidate(action="create", type="user", name="language", description="desc", content="content")

@@ -216,6 +216,31 @@ class MemoryManager:
         if self.policy.is_noisy_output(candidate.content):
             raise MemoryPolicyError("memory rejected: noisy_output")
         confirmed_action = action or candidate.suggested_action or ("update" if (target_memory_id or candidate.target_memory_id) else "create")
+        if confirmed_action == "update" and (target_memory_id or candidate.target_memory_id) is None:
+            raise MemoryValidationError("target_memory_id is required for confirmed update")
+        if confirmed_action == "update" and self.memory_store.get_memory(target_memory_id or candidate.target_memory_id) is None:
+            raise MemoryNotFoundError(f"memory not found: {target_memory_id or candidate.target_memory_id}")
+        fresh = replace(candidate, action="create", target_memory_id=None, target_updated_at=None, suggested_action=None, reason="")
+        fresh = self.policy.evaluate(
+            fresh,
+            self._scoped_memories(candidate.user_id, candidate.project_id, candidate.workspace_id, include_archived=False),
+        )
+        if fresh.action == "reject":
+            raise MemoryPolicyError(f"memory rejected: {fresh.reason}")
+        if fresh.action == "ask_user":
+            if fresh.suggested_action != candidate.suggested_action or fresh.target_memory_id != candidate.target_memory_id or fresh.target_updated_at != candidate.target_updated_at:
+                fresh.reason = "confirmation_state_changed"
+                return self._write_result_from_decision(fresh)
+        elif fresh.action == "update":
+            if candidate.suggested_action != "update" or fresh.target_memory_id != candidate.target_memory_id or fresh.target_updated_at != candidate.target_updated_at:
+                fresh.action = "ask_user"
+                fresh.reason = "confirmation_state_changed"
+                return self._write_result_from_decision(fresh)
+        elif fresh.action == "create":
+            if candidate.suggested_action != "create" or candidate.target_memory_id is not None:
+                fresh.action = "ask_user"
+                fresh.reason = "confirmation_state_changed"
+                return self._write_result_from_decision(fresh)
         if confirmed_action not in {"create", "update"}:
             raise MemoryValidationError(f"unsupported confirmation action: {confirmed_action}")
         confirmed = replace(candidate)

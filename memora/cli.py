@@ -9,7 +9,7 @@ from dataclasses import asdict
 from datetime import datetime
 
 from .config import MemoryConfig
-from .errors import MemoraError
+from .errors import MemoraError, MemoryValidationError
 from .manager import MemoryManager
 from .embeddings import EMBEDDING_PROVIDER_CHOICES
 from .reranker import RERANKER_CHOICES
@@ -51,6 +51,12 @@ def build_parser() -> argparse.ArgumentParser:
     remember_parser.add_argument("--weight", type=int)
     remember_parser.add_argument("--confidence", type=float, default=1.0)
     remember_parser.add_argument("--json", action="store_true", help="Print machine-readable JSON output.")
+
+    confirm_parser = subparsers.add_parser("confirm", help="Confirm a pending candidate JSON file.")
+    confirm_parser.add_argument("--candidate", required=True, help="Path to a pending candidate JSON file or remember --json result.")
+    confirm_parser.add_argument("--action", choices=("create", "update"), help="Override the candidate suggested action.")
+    confirm_parser.add_argument("--target", dest="target_memory_id", help="Override the candidate target memory ID.")
+    confirm_parser.add_argument("--json", action="store_true", help="Print machine-readable JSON output.")
 
     list_parser = subparsers.add_parser("list", help="List memories.")
     list_parser.add_argument("--archived", action="store_true", help="List archived memories only.")
@@ -150,6 +156,17 @@ def _write_result_to_dict(result) -> dict:
     }
 
 
+def _candidate_from_dict(data: dict) -> MemoryCandidate:
+    candidate_data = data.get("candidate", data)
+    if not isinstance(candidate_data, dict):
+        raise ValueError("candidate JSON must contain an object")
+    allowed_fields = MemoryCandidate.__dataclass_fields__.keys()
+    values = {key: value for key, value in candidate_data.items() if key in allowed_fields}
+    if isinstance(values.get("target_updated_at"), str):
+        values["target_updated_at"] = datetime.fromisoformat(values["target_updated_at"])
+    return MemoryCandidate(**values)
+
+
 def _print_write_result(result, json_output: bool = False) -> None:
     if json_output:
         print(json.dumps(_write_result_to_dict(result), ensure_ascii=False, default=_json_default))
@@ -197,6 +214,21 @@ def _run_command(args, manager: MemoryManager, parser: argparse.ArgumentParser) 
             confidence=args.confidence,
         )
         result = manager.remember_candidate(candidate)
+        _print_write_result(result, json_output=args.json)
+        return 0
+
+    if args.command == "confirm":
+        try:
+            with open(args.candidate, encoding="utf-8") as file:
+                payload = json.load(file)
+            candidate = _candidate_from_dict(payload)
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            raise MemoryValidationError(f"invalid candidate JSON: {exc}") from exc
+        result = manager.confirm_memory_candidate(
+            candidate,
+            action=args.action,
+            target_memory_id=args.target_memory_id,
+        )
         _print_write_result(result, json_output=args.json)
         return 0
 
