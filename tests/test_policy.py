@@ -20,6 +20,19 @@ def test_rejects_secret_shaped_content():
     assert result.reason == "contains_secret"
 
 
+def test_allows_non_secret_security_and_token_guidance():
+    policy = MemoryPolicy()
+
+    for content in (
+        "Use environment variables for API keys.",
+        "Keep responses concise to save tokens.",
+        "Never store passwords in memory.",
+    ):
+        result = policy.evaluate(candidate(content), [])
+        assert result.action == "create"
+        assert result.reason == "accepted"
+
+
 def test_rejects_transient_task_state():
     result = MemoryPolicy().evaluate(candidate("下一步：实现 CLI"), [])
 

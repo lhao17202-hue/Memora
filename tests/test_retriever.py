@@ -201,3 +201,39 @@ def test_partial_name_and_description_matches_are_not_labeled_exact():
 
     assert name_results[0].reason == "partial_name"
     assert description_results[0].reason == "partial_description"
+
+
+def test_query_terms_match_snake_case_name_phrase():
+    memory = item("pytest_fixture", "unrelated content")
+    memory.description = "unrelated description"
+
+    results = MemoryRetriever().retrieve([memory], MemoryQuery(query="pytest fixture"))
+
+    assert len(results) == 1
+    assert results[0].memory.name == "pytest_fixture"
+    assert results[0].reason == "exact_name"
+
+
+def test_query_terms_match_snake_case_tag_phrase():
+    memory = item("secrets", "unrelated content")
+    memory.description = "unrelated description"
+    memory.tags = ["api_key"]
+
+    results = MemoryRetriever().retrieve([memory], MemoryQuery(query="api key"))
+
+    assert len(results) == 1
+    assert results[0].memory.name == "secrets"
+    assert results[0].reason == "tokens_tags"
+
+
+def test_ordered_non_adjacent_name_and_description_matches_are_partial():
+    name_memory = item("api-production-key", "unrelated content")
+    name_memory.description = "unrelated description"
+    description_memory = item("other", "unrelated content")
+    description_memory.description = "api production key"
+
+    name_results = MemoryRetriever().retrieve([name_memory], MemoryQuery(query="api key"))
+    description_results = MemoryRetriever().retrieve([description_memory], MemoryQuery(query="api key"))
+
+    assert name_results[0].reason == "partial_name"
+    assert description_results[0].reason == "partial_description"

@@ -41,19 +41,20 @@ _REASON_PRIORITY = {
 def _tokens(text: str) -> set[str]:
     lowered = (text or "").lower()
     words = set(re.findall(r"[a-z0-9_]+", lowered))
+    split_words = {part for word in words for part in word.split("_") if part}
     chinese_chunks = set(re.findall(r"[一-鿿]{2,}", lowered))
     chars = {char for char in lowered if "一" <= char <= "鿿"}
-    return words | chinese_chunks | chars
+    return words | split_words | chinese_chunks | chars
 
 
 def _normalize_text(text: str) -> str:
-    normalized = re.sub(r"[^a-z0-9_一-鿿]+", " ", (text or "").casefold())
+    normalized = re.sub(r"[^a-z0-9一-鿿]+", " ", (text or "").casefold())
     return " ".join(normalized.split())
 
 
 def _query_terms(text: str) -> list[str]:
     normalized = _normalize_text(text)
-    return re.findall(r"[a-z0-9_]+|[一-鿿]", normalized)
+    return re.findall(r"[a-z0-9]+|[一-鿿]", normalized)
 
 
 def _contains_adjacent_terms(query_terms: list[str], field_terms: list[str]) -> bool:
@@ -129,7 +130,7 @@ def _field_score(query: str, field_text: str, field_name: str) -> tuple[float, s
         reason = _field_reason(field_name, exact_or_phrase=True, coverage=coverage)
     elif ordered:
         base_score = max(0.80, coverage)
-        reason = _field_reason(field_name, exact_or_phrase=field_name in {"name", "description"}, coverage=coverage)
+        reason = _field_reason(field_name, exact_or_phrase=False, coverage=coverage)
     elif coverage > 0:
         if field_name == "tags":
             base_score = max(0.80, coverage)

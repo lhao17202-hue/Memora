@@ -9,14 +9,9 @@ from .schema import MemoryCandidate, MemoryItem
 from .utils import slugify
 
 SECRET_PATTERNS = [
-    re.compile(r"(?i)api[_ -]?key"),
-    re.compile(r"(?i)token"),
-    re.compile(r"(?i)secret"),
-    re.compile(r"(?i)password"),
-    re.compile(r"(?i)private[_ -]?key"),
+    re.compile(r"(?i)\b(?:api[_ -]?key|token|secret|password|private[_ -]?key|cookie)\b\s*[:=]\s*\S+"),
     re.compile(r"sk-[A-Za-z0-9_-]{8,}"),
-    re.compile(r"(?i)authorization:\s*bearer"),
-    re.compile(r"(?i)cookie"),
+    re.compile(r"(?i)authorization:\s*bearer\s+\S+"),
 ]
 
 TRANSIENT_PREFIXES = (
