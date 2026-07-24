@@ -129,7 +129,7 @@ def _field_score(query: str, field_text: str, field_name: str) -> tuple[float, s
             base_score = 0.82
         reason = _field_reason(field_name, exact_or_phrase=True, coverage=coverage)
     elif ordered:
-        base_score = max(0.80, coverage)
+        base_score = min(max(0.80, coverage), 0.90)
         reason = _field_reason(field_name, exact_or_phrase=False, coverage=coverage)
     elif coverage > 0:
         if field_name == "tags":

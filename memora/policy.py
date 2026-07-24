@@ -9,10 +9,12 @@ from .schema import MemoryCandidate, MemoryItem
 from .utils import slugify
 
 SECRET_PATTERNS = [
-    re.compile(r"(?i)\b(?:api[_ -]?key|token|secret|password|private[_ -]?key|cookie)\b\s*[:=]\s*\S+"),
     re.compile(r"sk-[A-Za-z0-9_-]{8,}"),
     re.compile(r"(?i)authorization:\s*bearer\s+\S+"),
 ]
+
+SECRET_ASSIGNMENT_PATTERN = re.compile(r"(?i)\b([A-Z0-9_ -]+)\s*[:=]\s*\S+")
+SECRET_KEY_FRAGMENTS = ("api_key", "token", "secret", "password", "private_key", "cookie")
 
 TRANSIENT_PREFIXES = (
     "当前目标",
@@ -42,7 +44,14 @@ class MemoryPolicy:
         self.config = config or MemoryConfig()
 
     def contains_secret(self, text: str) -> bool:
-        return any(pattern.search(text or "") for pattern in SECRET_PATTERNS)
+        value = text or ""
+        if any(pattern.search(value) for pattern in SECRET_PATTERNS):
+            return True
+        for match in SECRET_ASSIGNMENT_PATTERN.finditer(value):
+            key = re.sub(r"[^a-z0-9]+", "_", match.group(1).casefold()).strip("_")
+            if any(fragment in key for fragment in SECRET_KEY_FRAGMENTS):
+                return True
+        return False
 
     def is_transient_task_state(self, text: str) -> bool:
         lowered = (text or "").strip().lower()

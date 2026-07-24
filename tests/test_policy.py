@@ -20,6 +20,21 @@ def test_rejects_secret_shaped_content():
     assert result.reason == "contains_secret"
 
 
+def test_rejects_sensitive_environment_variable_assignments():
+    policy = MemoryPolicy()
+
+    for content in (
+        "OPENAI_API_KEY=abc123",
+        "GITHUB_TOKEN=ghp_abcdef123456",
+        "DATABASE_PASSWORD=hunter2",
+        "JWT_SECRET=abcdef123456",
+        "SESSION_COOKIE=abc123",
+    ):
+        result = policy.evaluate(candidate(content), [])
+        assert result.action == "reject"
+        assert result.reason == "contains_secret"
+
+
 def test_allows_non_secret_security_and_token_guidance():
     policy = MemoryPolicy()
 

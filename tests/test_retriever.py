@@ -237,3 +237,17 @@ def test_ordered_non_adjacent_name_and_description_matches_are_partial():
 
     assert name_results[0].reason == "partial_name"
     assert description_results[0].reason == "partial_description"
+
+
+def test_exact_name_phrase_ranks_above_ordered_non_adjacent_name():
+    exact = item("api-key", "unrelated content")
+    exact.description = "unrelated description"
+    ordered = item("api-production-key", "unrelated content")
+    ordered.description = "unrelated description"
+
+    results = MemoryRetriever().retrieve([ordered, exact], MemoryQuery(query="api key"))
+
+    assert [result.memory.name for result in results] == ["api-key", "api-production-key"]
+    assert results[0].reason == "exact_name"
+    assert results[1].reason == "partial_name"
+    assert results[0].similarity_score > results[1].similarity_score
