@@ -14,7 +14,9 @@ SECRET_PATTERNS = [
 ]
 
 SECRET_ASSIGNMENT_PATTERN = re.compile(r"(?i)\b([A-Z0-9_ -]+)\s*[:=]\s*\S+")
-SECRET_KEY_FRAGMENTS = ("api_key", "token", "secret", "password", "private_key", "cookie")
+SECRET_KEY_FRAGMENTS = ("api_key", "apikey", "token", "secret", "password", "private_key", "privatekey", "cookie")
+NON_SECRET_ASSIGNMENT_KEYS = {"max_tokens"}
+NON_SECRET_ASSIGNMENT_SUFFIXES = ("_budget", "_policy")
 
 TRANSIENT_PREFIXES = (
     "当前目标",
@@ -49,7 +51,10 @@ class MemoryPolicy:
             return True
         for match in SECRET_ASSIGNMENT_PATTERN.finditer(value):
             key = re.sub(r"[^a-z0-9]+", "_", match.group(1).casefold()).strip("_")
-            if any(fragment in key for fragment in SECRET_KEY_FRAGMENTS):
+            if key in NON_SECRET_ASSIGNMENT_KEYS or key.endswith(NON_SECRET_ASSIGNMENT_SUFFIXES):
+                continue
+            compact_key = key.replace("_", "")
+            if any(fragment in key or fragment in compact_key for fragment in SECRET_KEY_FRAGMENTS):
                 return True
         return False
 

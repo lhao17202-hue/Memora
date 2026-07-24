@@ -35,6 +35,19 @@ def test_rejects_sensitive_environment_variable_assignments():
         assert result.reason == "contains_secret"
 
 
+def test_rejects_camel_case_sensitive_assignment_keys():
+    policy = MemoryPolicy()
+
+    for content in (
+        "apiKey=abc123",
+        "openaiApiKey=abc123",
+        "privateKey=abc123",
+    ):
+        result = policy.evaluate(candidate(content), [])
+        assert result.action == "reject"
+        assert result.reason == "contains_secret"
+
+
 def test_allows_non_secret_security_and_token_guidance():
     policy = MemoryPolicy()
 
@@ -42,6 +55,20 @@ def test_allows_non_secret_security_and_token_guidance():
         "Use environment variables for API keys.",
         "Keep responses concise to save tokens.",
         "Never store passwords in memory.",
+    ):
+        result = policy.evaluate(candidate(content), [])
+        assert result.action == "create"
+        assert result.reason == "accepted"
+
+
+def test_allows_non_credential_config_assignments():
+    policy = MemoryPolicy()
+
+    for content in (
+        "token_budget=1000",
+        "max_tokens=2048",
+        "api_key_policy=use env vars",
+        "password_policy=never store passwords",
     ):
         result = policy.evaluate(candidate(content), [])
         assert result.action == "create"
