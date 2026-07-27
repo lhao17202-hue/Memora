@@ -113,7 +113,12 @@ class MemoryManager:
             self._record_rag_sync_error("delete", memory_id, exc)
             return
 
-    def _write_result_from_decision(self, decision: MemoryCandidate, memory: MemoryItem | None = None) -> MemoryWriteResult:
+    def _write_result_from_decision(
+        self,
+        decision: MemoryCandidate,
+        memory: MemoryItem | None = None,
+        rag_sync_errors: list[dict[str, str]] | None = None,
+    ) -> MemoryWriteResult:
         if decision.action == "create":
             action = "created"
         elif decision.action == "update":
@@ -124,12 +129,19 @@ class MemoryManager:
             action = "requires_confirmation"
         else:
             action = decision.action
+        diagnostics = getattr(decision, "_write_diagnostics", {})
         return MemoryWriteResult(
             action=action,
             memory=memory,
             candidate=decision,
             reason=decision.reason,
             target_memory_id=decision.target_memory_id,
+            relation_kind=diagnostics.get("relation_kind"),
+            relation_confidence=diagnostics.get("relation_confidence"),
+            relation_reason=diagnostics.get("relation_reason", ""),
+            relation_judge_status=diagnostics.get("relation_judge_status"),
+            relation_judge_error=diagnostics.get("relation_judge_error"),
+            rag_sync_errors=list(rag_sync_errors or []),
         )
 
     def _default_weight_for_type(self, memory_type: str) -> int:
@@ -144,10 +156,19 @@ class MemoryManager:
         scoped = self._scoped_memories(candidate.user_id, candidate.project_id, candidate.workspace_id, include_archived=False)
         relation = None
         relation_decision = None
+        relation_judge_status = None
+        relation_judge_error = None
         if self.relation_resolver is not None and self.policy.rejection_reason(candidate) is None:
             relation = self.relation_resolver.resolve(candidate, scoped)
-            relation_decision = self._judge_relation(candidate, scoped, relation)
+            relation_decision, relation_judge_status, relation_judge_error = self._judge_relation(candidate, scoped, relation)
         decision = self.policy.evaluate(candidate, scoped, relation=relation, relation_decision=relation_decision)
+        self._attach_write_diagnostics(
+            decision,
+            relation=relation,
+            relation_decision=relation_decision,
+            relation_judge_status=relation_judge_status,
+            relation_judge_error=relation_judge_error,
+        )
         if decision.target_memory_id is not None:
             self._apply_relation_decision(decision, relation_decision)
         return decision
@@ -157,19 +178,59 @@ class MemoryManager:
         candidate: MemoryCandidate,
         scoped: list[MemoryItem],
         relation: MemoryRelation,
-    ) -> MemoryRelationDecision | None:
+    ) -> tuple[MemoryRelationDecision | None, str | None, str | None]:
         target = self._relation_target(scoped, relation)
         if target is None:
-            return None
+            return None, None, None
         if not self.config.llm_relation_judge_enabled:
-            return None
+            return None, None, None
         if self.relation_judge is None:
-            return None
+            return None, "missing", None
         try:
             decision = self.relation_judge.judge(candidate, target, relation)
-        except Exception:  # noqa: BLE001 - invalid LLM decisions fall back to deterministic relation behavior
-            return None
-        return self._accepted_relation_decision(decision)
+        except MemoryValidationError as exc:
+            return None, "invalid", str(exc)
+        except Exception as exc:  # noqa: BLE001 - invalid LLM decisions fall back to deterministic relation behavior
+            return None, "failed", str(exc)
+        return self._accepted_relation_decision(decision), "accepted", None
+
+    def _attach_write_diagnostics(
+        self,
+        candidate: MemoryCandidate,
+        relation: MemoryRelation | None,
+        relation_decision: MemoryRelationDecision | None,
+        relation_judge_status: str | None,
+        relation_judge_error: str | None,
+    ) -> None:
+        diagnostics = {
+            "relation_kind": None,
+            "relation_confidence": None,
+            "relation_reason": "",
+            "relation_judge_status": relation_judge_status,
+            "relation_judge_error": relation_judge_error,
+        }
+        if relation is not None:
+            diagnostics.update(
+                {
+                    "relation_kind": relation.kind,
+                    "relation_confidence": relation.similarity_score,
+                    "relation_reason": relation.reason,
+                }
+            )
+        if relation_decision is not None:
+            diagnostics.update(
+                {
+                    "relation_kind": relation_decision.kind,
+                    "relation_confidence": relation_decision.confidence,
+                    "relation_reason": relation_decision.reason,
+                }
+            )
+        if diagnostics["relation_kind"] is not None and not diagnostics["relation_reason"]:
+            diagnostics["relation_reason"] = candidate.reason
+        candidate._write_diagnostics = diagnostics
+
+    def _rag_sync_errors_since(self, start_index: int) -> list[dict[str, str]]:
+        return list(self._rag_sync_errors[start_index:])
 
     def _accepted_relation_decision(self, decision: MemoryRelationDecision) -> MemoryRelationDecision:
         if decision.kind == "merge" and decision.confidence < self.config.llm_merge_confidence_threshold:
@@ -248,15 +309,17 @@ class MemoryManager:
         if decision.action == "create":
             item = self._new_memory_from_candidate(decision)
             saved = self.memory_store.save_memory(item)
+            rag_error_start = len(self._rag_sync_errors)
             self._sync_rag_memory(saved)
-            return self._write_result_from_decision(decision, memory=saved)
+            return self._write_result_from_decision(decision, memory=saved, rag_sync_errors=self._rag_sync_errors_since(rag_error_start))
         if decision.action == "update" and decision.target_memory_id:
             existing = self.memory_store.get_memory(decision.target_memory_id)
             if existing is None:
                 raise MemoryNotFoundError(f"memory not found: {decision.target_memory_id}")
             updated = self._apply_candidate_update(existing, decision)
+            rag_error_start = len(self._rag_sync_errors)
             self._sync_rag_memory(updated)
-            return self._write_result_from_decision(decision, memory=updated)
+            return self._write_result_from_decision(decision, memory=updated, rag_sync_errors=self._rag_sync_errors_since(rag_error_start))
         return self._write_result_from_decision(decision)
 
     def confirm_memory_candidate(
@@ -305,6 +368,8 @@ class MemoryManager:
         if target_memory_id is not None and target_memory_id != fresh.target_memory_id:
             raise MemoryValidationError(f"target_memory_id must match current suggested target: {fresh.target_memory_id}")
         confirmed = replace(candidate)
+        if hasattr(fresh, "_write_diagnostics"):
+            confirmed._write_diagnostics = fresh._write_diagnostics
         confirmed.action = confirmed_action
         confirmed.target_memory_id = target_memory_id or candidate.target_memory_id
         confirmed.reason = f"confirmed:{candidate.reason}" if candidate.reason else "confirmed"
@@ -312,16 +377,18 @@ class MemoryManager:
             confirmed.target_memory_id = None
             item = self._new_memory_from_candidate(confirmed)
             saved = self.memory_store.save_memory(item)
+            rag_error_start = len(self._rag_sync_errors)
             self._sync_rag_memory(saved)
-            return self._write_result_from_decision(confirmed, memory=saved)
+            return self._write_result_from_decision(confirmed, memory=saved, rag_sync_errors=self._rag_sync_errors_since(rag_error_start))
         if confirmed.target_memory_id is None:
             raise MemoryValidationError("target_memory_id is required for confirmed update")
         existing = self.memory_store.get_memory(confirmed.target_memory_id)
         if existing is None:
             raise MemoryNotFoundError(f"memory not found: {confirmed.target_memory_id}")
         updated = self._apply_candidate_update(existing, confirmed)
+        rag_error_start = len(self._rag_sync_errors)
         self._sync_rag_memory(updated)
-        return self._write_result_from_decision(confirmed, memory=updated)
+        return self._write_result_from_decision(confirmed, memory=updated, rag_sync_errors=self._rag_sync_errors_since(rag_error_start))
 
     def save_memory(
         self,
@@ -363,7 +430,7 @@ class MemoryManager:
             existing = self.memory_store.get_memory(decision.target_memory_id)
             if existing is None:
                 raise ValueError("target memory missing for update")
-            updated = self._apply_candidate_update(existing, candidate)
+            updated = self._apply_candidate_update(existing, decision)
             self._sync_rag_memory(updated)
             return updated
 

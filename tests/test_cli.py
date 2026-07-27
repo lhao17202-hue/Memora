@@ -385,6 +385,12 @@ def test_remember_command_json_created_result(tmp_path: Path):
     assert payload["memory"]["name"] == "language"
     assert payload["candidate"]["content"] == "用户偏好中文回答。"
     assert payload["candidate"]["suggested_action"] == "create"
+    assert payload["relation_kind"] is None
+    assert payload["relation_confidence"] is None
+    assert payload["relation_reason"] == ""
+    assert payload["relation_judge_status"] is None
+    assert payload["relation_judge_error"] is None
+    assert payload["rag_sync_errors"] == []
 
 
 def test_remember_command_json_rejected_result(tmp_path: Path):

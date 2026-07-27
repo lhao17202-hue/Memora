@@ -161,6 +161,12 @@ def _write_result_to_dict(result) -> dict:
         "action": result.action,
         "reason": result.reason,
         "target_memory_id": result.target_memory_id,
+        "relation_kind": result.relation_kind,
+        "relation_confidence": result.relation_confidence,
+        "relation_reason": result.relation_reason,
+        "relation_judge_status": result.relation_judge_status,
+        "relation_judge_error": result.relation_judge_error,
+        "rag_sync_errors": result.rag_sync_errors,
         "memory": asdict(result.memory) if result.memory is not None else None,
         "candidate": asdict(result.candidate) if result.candidate is not None else None,
     }

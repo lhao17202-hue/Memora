@@ -43,6 +43,11 @@ class BrokenRelationJudge:
         raise RuntimeError("broken relation judge")
 
 
+class InvalidRelationJudge:
+    def judge(self, candidate, target, relation):
+        raise MemoryValidationError("invalid_relation_decision_json")
+
+
 class ExplodingRelationJudge:
     def judge(self, candidate, target, relation):
         raise AssertionError("relation judge should not be called")
@@ -578,6 +583,47 @@ def test_llm_relation_merge_uses_merged_fields(tmp_path: Path):
     assert result.memory.description == "User prefers concise responses."
     assert result.memory.content == "User prefers concise responses with short summaries."
     assert result.memory.tags == ["style", "summary"]
+    assert result.relation_kind == "merge"
+    assert result.relation_confidence == 0.88
+    assert result.relation_reason == "Candidate refines the style preference."
+    assert result.relation_judge_status == "accepted"
+    assert result.relation_judge_error is None
+
+
+def test_save_memory_llm_relation_merge_uses_merged_fields(tmp_path: Path):
+    judge = FixedRelationJudge(
+        MemoryRelationDecision(
+            kind="merge",
+            confidence=0.90,
+            reason="Manual save refines the style preference.",
+            merged_name="response-style",
+            merged_description="User prefers concise responses.",
+            merged_content="User prefers concise responses with short summaries.",
+            merged_tags=["style", "summary"],
+        )
+    )
+    manager = MemoryManager(
+        MemoryConfig(root_dir=tmp_path / ".memora", llm_relation_judge_enabled=True),
+        relation_judge=judge,
+    )
+    manager.init_storage()
+    existing = manager.save_memory("preference", "User prefers concise responses.", "response style", name="response-style")
+    manager.relation_resolver = FixedRelationResolver(
+        MemoryRelation(kind="merge", target_memory_id=existing.id, target_updated_at=existing.updated_at, similarity_score=0.92)
+    )
+
+    updated = manager.save_memory(
+        "preference",
+        "Use short summaries.",
+        "Short summaries.",
+        name="style-short",
+    )
+
+    assert updated.id == existing.id
+    assert updated.name == "response-style"
+    assert updated.description == "User prefers concise responses."
+    assert updated.content == "User prefers concise responses with short summaries."
+    assert updated.tags == ["style", "summary"]
 
 
 def test_llm_relation_merge_can_rename_target_memory(tmp_path: Path):
@@ -679,6 +725,64 @@ def test_broken_llm_relation_judge_falls_back_to_deterministic_relation(tmp_path
     assert result.memory is not None
     assert result.memory.id == existing.id
     assert result.memory.content == "Prefer concise responses with short summaries."
+    assert result.relation_kind == "merge"
+    assert result.relation_confidence == 0.92
+    assert result.relation_reason == "semantic_merge"
+    assert result.relation_judge_status == "failed"
+    assert result.relation_judge_error == "broken relation judge"
+
+
+def test_missing_llm_relation_judge_reports_fallback_diagnostic(tmp_path: Path):
+    manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", llm_relation_judge_enabled=True))
+    manager.init_storage()
+    existing = manager.save_memory("preference", "Prefer concise responses.", "response style", name="response-style")
+    manager.relation_resolver = FixedRelationResolver(
+        MemoryRelation(kind="merge", target_memory_id=existing.id, target_updated_at=existing.updated_at, similarity_score=0.92)
+    )
+
+    result = manager.remember_candidate(
+        MemoryCandidate(
+            action="create",
+            type="preference",
+            name="style-short",
+            description="Prefer concise responses with short summaries.",
+            content="Prefer concise responses with short summaries.",
+        )
+    )
+
+    assert result.action == "updated"
+    assert result.reason == "semantic_merge"
+    assert result.relation_kind == "merge"
+    assert result.relation_confidence == 0.92
+    assert result.relation_judge_status == "missing"
+    assert result.relation_judge_error is None
+
+
+def test_invalid_llm_relation_judge_decision_reports_invalid_diagnostic(tmp_path: Path):
+    manager = MemoryManager(
+        MemoryConfig(root_dir=tmp_path / ".memora", llm_relation_judge_enabled=True),
+        relation_judge=InvalidRelationJudge(),
+    )
+    manager.init_storage()
+    existing = manager.save_memory("preference", "Prefer concise responses.", "response style", name="response-style")
+    manager.relation_resolver = FixedRelationResolver(
+        MemoryRelation(kind="merge", target_memory_id=existing.id, target_updated_at=existing.updated_at, similarity_score=0.92)
+    )
+
+    result = manager.remember_candidate(
+        MemoryCandidate(
+            action="create",
+            type="preference",
+            name="style-short",
+            description="Prefer concise responses with short summaries.",
+            content="Prefer concise responses with short summaries.",
+        )
+    )
+
+    assert result.action == "updated"
+    assert result.reason == "semantic_merge"
+    assert result.relation_judge_status == "invalid"
+    assert result.relation_judge_error == "invalid_relation_decision_json"
 
 
 def test_low_confidence_llm_merge_creates_separate_memory(tmp_path: Path):
@@ -744,7 +848,7 @@ def test_semantic_conflict_requires_confirmation_without_writing(tmp_path: Path)
     manager.init_storage()
     existing = manager.save_memory("preference", "Prefer English responses.", "language", name="language-en")
     manager.relation_resolver = FixedRelationResolver(
-        MemoryRelation(kind="conflict", target_memory_id=existing.id, target_updated_at=existing.updated_at, similarity_score=0.95)
+        MemoryRelation(kind="conflict", target_memory_id=existing.id, target_updated_at=existing.updated_at, similarity_score=0.95, reason="semantic_conflict")
     )
     candidate = MemoryCandidate(
         action="create",
@@ -794,6 +898,9 @@ def test_llm_conflict_low_confidence_requires_confirmation(tmp_path: Path):
     assert result.action == "requires_confirmation"
     assert result.reason == "llm_semantic_conflict_requires_confirmation"
     assert result.target_memory_id == existing.id
+    assert result.relation_kind == "conflict"
+    assert result.relation_confidence == 0.70
+    assert result.relation_reason == "Candidate may change language preference."
     assert manager.memory_store.get_memory(existing.id).content == "Prefer English responses."
 
 
@@ -827,6 +934,41 @@ def test_llm_conflict_high_confidence_replaces_existing_memory(tmp_path: Path):
     assert result.memory is not None
     assert result.memory.id == existing.id
     assert result.memory.content == "Prefer Chinese responses."
+    assert result.relation_kind == "conflict"
+    assert result.relation_confidence == 0.95
+    assert result.relation_reason == "Candidate changes language preference."
+    assert result.relation_judge_status == "accepted"
+
+
+def test_remember_candidate_reports_rag_sync_errors_for_current_write(tmp_path: Path):
+    manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", rag_enabled=True))
+    manager.init_storage()
+
+    class BrokenRagIndex:
+        def sync_memory(self, item):
+            raise RuntimeError("sync offline")
+
+    manager.rag_index = BrokenRagIndex()
+
+    result = manager.remember_candidate(
+        MemoryCandidate(
+            action="create",
+            type="preference",
+            name="safe-write",
+            description="safe write",
+            content="safe write content",
+        )
+    )
+
+    assert result.action == "created"
+    assert result.memory is not None
+    assert result.rag_sync_errors == [
+        {
+            "operation": "sync",
+            "memory_id": result.memory.id,
+            "error": "sync offline",
+        }
+    ]
 
 
 def test_high_confidence_semantic_conflict_replaces_existing_memory(tmp_path: Path):
@@ -834,7 +976,7 @@ def test_high_confidence_semantic_conflict_replaces_existing_memory(tmp_path: Pa
     manager.init_storage()
     existing = manager.save_memory("preference", "Prefer English responses.", "language", name="language-en")
     manager.relation_resolver = FixedRelationResolver(
-        MemoryRelation(kind="conflict", target_memory_id=existing.id, target_updated_at=existing.updated_at, similarity_score=0.95)
+        MemoryRelation(kind="conflict", target_memory_id=existing.id, target_updated_at=existing.updated_at, similarity_score=0.95, reason="semantic_conflict")
     )
     candidate = MemoryCandidate(
         action="create",
@@ -957,7 +1099,7 @@ def test_confirm_memory_candidate_updates_semantic_conflict_target(tmp_path: Pat
     manager.init_storage()
     existing = manager.save_memory("preference", "Prefer English responses.", "language", name="language-en")
     manager.relation_resolver = FixedRelationResolver(
-        MemoryRelation(kind="conflict", target_memory_id=existing.id, target_updated_at=existing.updated_at, similarity_score=0.95)
+        MemoryRelation(kind="conflict", target_memory_id=existing.id, target_updated_at=existing.updated_at, similarity_score=0.95, reason="semantic_conflict")
     )
     pending = manager.remember_candidate(
         MemoryCandidate(
@@ -976,6 +1118,9 @@ def test_confirm_memory_candidate_updates_semantic_conflict_target(tmp_path: Pat
     assert confirmed.memory is not None
     assert confirmed.memory.id == existing.id
     assert confirmed.memory.content == "Prefer Chinese responses."
+    assert confirmed.relation_kind == "conflict"
+    assert confirmed.relation_confidence == 0.95
+    assert confirmed.relation_reason == "semantic_conflict"
 
 
 def test_confirm_memory_candidate_detects_stale_create_candidate_after_duplicate_appears(tmp_path: Path):

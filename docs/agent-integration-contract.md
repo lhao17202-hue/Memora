@@ -59,6 +59,30 @@ The agent should not pass:
 6. Memora writes the selected local backend.
 7. If RAG is enabled, Memora updates the vector index from the saved local item.
 
+## Write Result Diagnostics
+
+Every write returns a `MemoryWriteResult`. Agent runtimes should log these fields:
+
+- `action`
+- `reason`
+- `target_memory_id`
+- `relation_kind`
+- `relation_confidence`
+- `relation_reason`
+- `relation_judge_status`
+- `relation_judge_error`
+- `rag_sync_errors`
+
+`relation_judge_status` values:
+
+- `accepted`: the injected judge returned a valid decision.
+- `missing`: LLM relation judging was enabled and a relation target existed, but no judge was injected.
+- `invalid`: the injected judge returned invalid relation JSON or an invalid relation decision.
+- `failed`: the injected judge raised a non-validation exception.
+- `null`: no LLM relation judge was called.
+
+`rag_sync_errors` contains errors from the current write only. A failed RAG sync does not cancel the local write. Use `verify` to inspect accumulated sync errors and `rebuild-index` to repair the vector index.
+
 ## Relation Judge Contract
 
 An LLM relation client must implement:
@@ -128,6 +152,34 @@ Runnable examples:
 
 - `examples/openai_llm_relation_runtime.py`
 - `examples/openai_full_memory_turn_runtime.py`
+
+## CLI Debugging Boundary
+
+The CLI is a local debugging surface. It can:
+
+- Initialize stores.
+- Save and search memories.
+- Simulate an agent-extracted candidate with `remember`.
+- Emit a machine-readable `MemoryWriteResult` with `remember --json`.
+- Confirm a pending candidate with `confirm`.
+- Verify and rebuild local indexes.
+
+The CLI does not:
+
+- Instantiate OpenAI clients.
+- Read `OPENAI_API_KEY`.
+- Run LLM extraction.
+- Inject an LLM relation judge.
+- Decide what should be remembered from a raw conversation.
+
+Use the Python runtime API for hosted LLM integrations:
+
+```python
+runtime = MemoryRuntime(
+    extractor=LLMMemoryExtractor(extraction_client),
+    relation_judge=LLMMemoryRelationJudge(relation_client),
+)
+```
 
 ## Recommended Modes
 

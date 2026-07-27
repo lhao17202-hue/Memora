@@ -1,34 +1,37 @@
 # Memora
 
-Memora is a deterministic local memory system for agent runtimes.
+Memora is a deterministic, local-first long-term memory system for agent runtimes.
 
 It provides:
 
 - Markdown memory files with YAML frontmatter
 - SQLite memory storage with FTS candidate recall
 - JSON session history
-- Working memory state
-- Deterministic safety policy
+- Working memory state helpers
+- Deterministic safety and write policy
 - Keyword retrieval and scoring
-- Prompt formatting
-- Lifecycle cleanup
-- A thin CLI for debugging
+- Optional local RAG with hash embeddings and SQLite vector storage
+- Embedding-backed write-time duplicate, merge, and conflict detection
+- Optional injected LLM relation judging
+- Prompt formatting for retrieved memories
+- Lifecycle cleanup, export, import, verify, rebuild, and backup commands
+- A thin CLI for local debugging
 
-## Install for development
+Memora does not bundle hosted LLM clients, external embedding providers, hosted vector databases, or a hosted service.
+
+## Install For Development
 
 ```bash
 pip install -e .[dev]
 ```
 
-## Run tests
+## Run Tests
 
 ```bash
 pytest
 ```
 
-## Release verification
-
-CI runs the same lightweight checks expected before an alpha release:
+## Release Verification
 
 ```bash
 python -m pip install -e ".[dev]"
@@ -40,24 +43,26 @@ python -c "import memora; print(memora.__version__)"
 memora --help
 ```
 
-The build step verifies both source and wheel distributions. Memora remains local-first: the core package has no hosted service, LLM, or external vector database dependency.
+The build step verifies both source and wheel distributions. The source distribution includes docs, examples, and tests. The wheel installs the core `memora` package and CLI.
 
-## CLI quickstart
+## CLI Quickstart
+
+The default memory backend is the Markdown file store.
 
 ```bash
 python -m memora --root .memora init
-python -m memora --root .memora save --type preference --name language --description "用户偏好中文。" --content "用户偏好使用中文回答。"
-python -m memora --root .memora remember --type preference --name language --description "用户偏好中文。" --content "用户偏好使用中文回答。" --session session_1 --tag preference
-python -m memora --root .memora remember --type preference --name language-json --description "用户偏好中文。" --content "用户偏好使用中文回答。" --json
+python -m memora --root .memora save --type preference --name response-style --description "Response style preference." --content "Prefer concise answers."
+python -m memora --root .memora remember --type preference --name response-style --description "Response style preference." --content "Prefer concise answers." --session session_1 --tag preference
+python -m memora --root .memora remember --type preference --name response-style-json --description "Response style preference." --content "Prefer concise answers." --json
 python -m memora --root .memora list
-python -m memora --root .memora search "中文回答"
-python -m memora --root .memora show language
-python -m memora --root .memora update language --tag language --weight 8
-python -m memora --root .memora archive language
+python -m memora --root .memora search "concise answers"
+python -m memora --root .memora show response-style
+python -m memora --root .memora update response-style --tag style --weight 8
+python -m memora --root .memora archive response-style
 python -m memora --root .memora list --archived
-python -m memora --root .memora restore language
-python -m memora --root .memora search "中文回答" --type preference --tag language --top-k 5
-python -m memora --root .memora delete language
+python -m memora --root .memora restore response-style
+python -m memora --root .memora search "concise answers" --type preference --tag style --top-k 5
+python -m memora --root .memora delete response-style
 python -m memora --root .memora list --all
 python -m memora --root .memora session append session_1 --role user --content "hello"
 python -m memora --root .memora session show session_1
@@ -69,35 +74,40 @@ python -m memora --root .memora backup backup.json
 python -m memora --root .memora clean
 ```
 
-The default memory backend is the Markdown file store.
+Validation and policy failures are reported to stderr and return a non-zero exit code:
 
-## SQLite backend
+```bash
+python -m memora --root .memora save --type preference --name secret --description "secret" --content "api_key = sk-abcdef123456"
+# stderr: error: memory rejected: contains_secret
+```
 
-Use `--backend sqlite` to store memories in SQLite at `<root>/memora.sqlite3`:
+## SQLite Backend
+
+Use `--backend sqlite` to store memories in SQLite at `<root>/memora.sqlite3`.
 
 ```bash
 python -m memora --root .memora --backend sqlite init
-python -m memora --root .memora --backend sqlite save --type preference --name language --description "用户偏好中文。" --content "用户偏好使用中文回答。"
-python -m memora --root .memora --backend sqlite search "中文回答"
+python -m memora --root .memora --backend sqlite save --type preference --name response-style --description "Response style preference." --content "Prefer concise answers."
+python -m memora --root .memora --backend sqlite search "concise answers"
 python -m memora --root .memora --backend sqlite verify
 python -m memora --root .memora --backend sqlite rebuild-index
 ```
 
-SQLite FTS is used for candidate recall only. Final ranking still uses Memora's deterministic scoring. Chinese short-query fallback is preserved.
+SQLite FTS is used for candidate recall only. Final ranking still uses Memora's deterministic scoring. Session history remains JSON-file backed in this phase, even when SQLite is used for memories.
 
-## RAG v1
+## RAG V1
 
-RAG is disabled by default. Enable the deterministic local RAG path with `--rag`:
+RAG is disabled by default. Enable the deterministic local RAG path with `--rag`.
 
 ```bash
 python -m memora --root .memora --backend sqlite --rag init
-python -m memora --root .memora --backend sqlite --rag save --type preference --name language --description "用户偏好中文。" --content "用户偏好使用中文回答。"
-python -m memora --root .memora --backend sqlite --rag search "中文回答"
+python -m memora --root .memora --backend sqlite --rag save --type preference --name response-style --description "Response style preference." --content "Prefer concise answers."
+python -m memora --root .memora --backend sqlite --rag search "concise answers"
 python -m memora --root .memora --backend sqlite --rag verify
 python -m memora --root .memora --backend sqlite --rag rebuild-index
 ```
 
-RAG v1 supports only the local `hash` embedding provider, `sqlite` vector store, and `none` or `deterministic` rerankers. Future provider names such as `openai`, `qdrant`, and `chroma` are reserved in one registry but report `reserved but not implemented` if selected.
+RAG v1 supports only the local `hash` embedding provider, `sqlite` vector store, and `none` or `deterministic` rerankers. Future provider names such as `openai`, `cohere`, `voyage`, `qdrant`, and `chroma` are reserved but report `reserved but not implemented` if selected.
 
 `verify` prints vector diagnostics when RAG is enabled:
 
@@ -107,33 +117,11 @@ vector_ok=True missing=0 orphans=0 mismatches=0 sync_errors=0
 
 `rebuild-index` rebuilds both the normal memory index and the RAG vector index when `--rag` is enabled. JSON `import` also syncs imported active memories into the vector index.
 
-### Deterministic retrieval quality
+The selected local memory backend remains the source of truth. RAG is a retrieval index, not a separate authoritative memory store.
 
-Memora's local retrieval favors deterministic lexical evidence before broad semantic recall. Exact name and description matches rank highest, followed by adjacent content phrases, tag token matches, and partial content token matches. When RAG is enabled, the built-in hash-vector recall remains deterministic and local, but weak semantic-only candidates below `min_semantic_score` are filtered so exact and phrase keyword matches stay prominent.
+## Data Portability
 
-Memory storage is scoped by `user_id`, `project_id`, `workspace_id`, and name so different scopes can keep the same memory name independently. Name-based operations such as `show`, `update`, `archive`, and `delete` remain unscoped in the current CLI/API, so use memory IDs when duplicate names exist across scopes.
-
-Session history remains JSON-file backed in this phase, even when `--backend sqlite` is used for memories.
-
-To move memories between backends, use the existing JSON export/import format:
-
-```bash
-python -m memora --root .memora --backend file export memories.json
-python -m memora --root .memora --backend sqlite import memories.json
-```
-
-## CLI error behavior
-
-Validation and policy failures are reported to stderr and return a non-zero exit code:
-
-```bash
-python -m memora --root .memora save --type preference --name secret --description "secret" --content "api_key = sk-abcdef123456"
-# stderr: error: memory rejected: contains_secret
-```
-
-## Data portability and integrity
-
-Memora can export, import, verify, rebuild, and back up memory files:
+Memora can export, import, verify, rebuild, and back up memory data:
 
 ```bash
 python -m memora --root .memora export memories.json
@@ -145,46 +133,55 @@ python -m memora --root .memora backup backup.json
 
 These commands cover memories only, not session history.
 
-## Python usage
+To move memories between backends, use the JSON export/import format:
+
+```bash
+python -m memora --root .memora --backend file export memories.json
+python -m memora --root .memora --backend sqlite import memories.json
+```
+
+## Python Usage
 
 ```python
 from memora.manager import MemoryManager
+
 
 manager = MemoryManager()
 manager.init_storage()
 manager.save_memory(
     memory_type="preference",
-    name="language",
-    description="用户偏好中文。",
-    content="用户偏好使用中文回答。",
+    name="response-style",
+    description="Response style preference.",
+    content="Prefer concise answers.",
 )
-results = manager.retrieve_memory("中文回答")
+results = manager.retrieve_memory("concise answers")
 print(manager.format_memories_for_prompt(results=results))
 ```
 
-## Runtime integration
+## Runtime Integration
 
-External agent runtimes can use `MemoryRuntime` as a thin wrapper around the manager API:
+External agent runtimes can use `MemoryRuntime` as a thin wrapper around the manager API.
 
 ```python
 from memora.runtime import MemoryRuntime
 
+
 runtime = MemoryRuntime()
 runtime.init_storage()
 
-context = runtime.build_context("用户偏好和当前项目")
-runtime.remember_message("session_1", "user", "下一步做什么")
-runtime.remember_message("session_1", "assistant", "建议做 runtime integration。")
-runtime.remember_summary("session_1", "用户认可最简单的 runtime integration。")
+context = runtime.build_context("response preferences and current project")
+runtime.remember_message("session_1", "user", "What should we do next?")
+runtime.remember_message("session_1", "assistant", "Continue the runtime integration.")
+runtime.remember_summary("session_1", "The user accepted the runtime integration direction.")
 ```
 
 Recommended agent integration pattern:
 
 1. Build task context before the external agent call with `runtime.build_task_context(...)`.
-2. Memora automatically prepends pinned `preference` and `project` memories, then retrieves on-demand memories such as `tool` or `knowledge` by query and type.
+2. Memora prepends pinned `preference` and `project` memories, then retrieves on-demand memories such as `tool` or `knowledge` by query and type.
 3. Store user and assistant messages with `runtime.remember_message(...)`.
-4. Let the external runtime, not Memora, extract candidate memories.
-5. Pass candidates to `runtime.remember_extracted(...)` so Memora can deterministically create, update, reject, or require confirmation.
+4. Let the external runtime, not Memora, extract candidate memories from conversations, traces, or task summaries.
+5. Pass candidates to `runtime.remember_extracted(...)` so Memora can create, update, reject, or require confirmation.
 6. If `result.action == "requires_confirmation"`, ask the user before calling `runtime.confirm_memory_candidate(result.candidate)`.
 
 ```python
@@ -194,30 +191,24 @@ context = runtime.build_task_context(
 )
 ```
 
-Use `runtime.build_context(...)` only when you want the older query-only retrieval behavior without pinned context.
+Use `runtime.build_context(...)` only when you want query-only retrieval without pinned context.
 
-On Windows PowerShell, if Chinese CLI output renders incorrectly, switch the console to UTF-8 before running examples:
+## Agent Memory Write Pipeline
 
-```powershell
-chcp 65001
-$OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
-```
-
-## Agent memory write pipeline
-
-Memora does not call an LLM by default. Agent runtimes can either pass explicit candidate memories to Memora, or inject an `LLMMemoryExtractor`-compatible client that returns JSON-only extraction output. Extraction produces an auditable `ExtractionArtifact`; writing still goes through deterministic validation, policy evaluation, updating, rejection, or confirmation handling.
+Memora does not call an LLM by default. Agent runtimes can either pass explicit candidate memories to Memora, or inject an `LLMMemoryExtractor`-compatible client that returns JSON-only extraction output. Extraction produces an auditable `ExtractionArtifact`; writing still goes through validation, policy evaluation, updating, rejection, or confirmation handling.
 
 ```python
 from memora.runtime import MemoryRuntime
+
 
 runtime = MemoryRuntime()
 runtime.init_storage()
 
 result = runtime.remember_extracted(
     memory_type="preference",
-    name="language",
-    description="用户偏好中文。",
-    content="用户偏好使用中文回答。",
+    name="response-style",
+    description="Response style preference.",
+    content="Prefer concise answers.",
     session_id="session_1",
 )
 print(result.action, result.reason)
@@ -247,7 +238,7 @@ print(artifact.errors, [result.action for result in results])
 
 If no extractor is configured, `runtime.extract_memories(...)` returns a `memory_extractor_not_configured` artifact and writes nothing.
 
-### Write-time relation flow
+## Write-Time Relation Flow
 
 Memora separates extraction, relation recall, relation judgment, and storage:
 
@@ -256,11 +247,12 @@ Memora separates extraction, relation recall, relation judgment, and storage:
 3. If semantic write relations or LLM relation judging is enabled, Memora uses the configured embedding provider to find one likely existing target in the same type and scope.
 4. If an LLM relation judge is injected, Memora asks it to classify only that embedding hit as `none`, `duplicate`, `merge`, or `conflict`.
 5. Policy decides whether to create, update, reject, or require confirmation.
-6. The selected local backend writes the `MemoryItem`; when RAG is enabled, the vector index is synced from the updated local item.
+6. The selected local backend writes the `MemoryItem`.
+7. When RAG is enabled, the vector index is synced from the saved local item.
 
-The local memory backend remains the source of truth. RAG is a retrieval index, not a separate authoritative memory store. Updates, conflict replacements, and LLM merges write through the same local update path and then refresh the vector index.
+Updates, conflict replacements, and LLM merges write through the same local update path and then refresh the vector index.
 
-`LLMMemoryRelationJudge` is intentionally provider-neutral. Any external client can be used if it implements `complete(messages) -> str` and returns JSON matching the relation decision schema:
+`LLMMemoryRelationJudge` is provider-neutral. Any external client can be used if it implements `complete(messages) -> str` and returns JSON matching the relation decision schema:
 
 ```python
 from memora.config import MemoryConfig
@@ -303,39 +295,51 @@ judge = LLMMemoryRelationJudge(OpenAIRelationClient(client, "gpt-5.6"))
 
 Production OpenAI integrations should prefer structured outputs, keep the relation prompt deterministic, and set conservative conflict replacement thresholds until the deployment has reviewed enough write logs. If OpenAI is unavailable or returns invalid JSON, Memora falls back to the deterministic embedding relation behavior.
 
-For CLI debugging, use `remember --json` to simulate an agent-extracted candidate memory and `confirm` to write a returned pending candidate after user approval:
+## Write Result Diagnostics
+
+`MemoryWriteResult` includes stable diagnostic fields for agent runtimes:
+
+- `action`
+- `reason`
+- `target_memory_id`
+- `memory`
+- `candidate`
+- `relation_kind`
+- `relation_confidence`
+- `relation_reason`
+- `relation_judge_status`
+- `relation_judge_error`
+- `rag_sync_errors`
+
+`relation_judge_status` can be:
+
+- `accepted`: an injected relation judge returned a valid decision.
+- `missing`: LLM relation judging was enabled and a relation target existed, but no judge was injected.
+- `invalid`: the injected judge returned invalid relation JSON or an invalid decision.
+- `failed`: the injected judge raised a non-validation exception.
+- `null`: no LLM relation judge was called.
+
+`rag_sync_errors` reports errors from the current write only. Memory writes degrade gracefully when RAG sync fails, and `verify` continues to expose accumulated RAG sync errors until `rebuild-index` repairs and clears them.
+
+CLI `remember --json` prints the same machine-readable write result fields. CLI can simulate candidate writes and confirmation flow, but it does not instantiate LLM extractors, OpenAI clients, or LLM relation judges. Use the Python runtime API for hosted LLM integration.
+
+For CLI debugging:
 
 ```bash
-python -m memora --root .memora remember --type preference --name language --description "用户偏好中文。" --content "用户偏好使用中文回答。" --session session_1 --json > candidate.json
+python -m memora --root .memora remember --type preference --name response-style --description "Response style preference." --content "Prefer concise answers." --session session_1 --json > candidate.json
 python -m memora --root .memora confirm --candidate candidate.json --json
 ```
 
 On Windows PowerShell, prefer explicit UTF-8 output for candidate files:
 
 ```powershell
-python -m memora --root .memora remember --type preference --name language --description "用户偏好中文。" --content "用户偏好使用中文回答。" --session session_1 --json | Set-Content -Encoding utf8 candidate.json
+python -m memora --root .memora remember --type preference --name response-style --description "Response style preference." --content "Prefer concise answers." --session session_1 --json | Set-Content -Encoding utf8 candidate.json
 python -m memora --root .memora confirm --candidate candidate.json --json
 ```
 
-Policy outcomes such as `rejected` and `requires_confirmation` are returned as normal write results for agent workflows. `MemoryPolicy` is decision-only: direct policy calls do not resolve omitted defaults such as `weight`. Use `MemoryManager` or `MemoryRuntime` APIs for persistence-ready decisions.
+If a pending candidate is later confirmed, Memora re-checks the current store state before writing. Stale confirmations return a new `requires_confirmation` result instead of overwriting newer memory.
 
-`requires_confirmation` results include the pending candidate, a `suggested_action`, and `target_memory_id` when confirmation would update an existing memory. Agent runtimes can pass the returned candidate back after user approval:
-
-```python
-result = runtime.remember_extracted(
-    memory_type="preference",
-    name="language",
-    description="用户偏好中文。",
-    content="用户偏好中文回答。",
-)
-if result.action == "requires_confirmation" and result.candidate is not None:
-    confirmed = runtime.confirm_memory_candidate(result.candidate)
-    print(confirmed.action, confirmed.memory.id if confirmed.memory else None)
-```
-
-CLI `remember --json` prints machine-readable write results with `action`, `reason`, `target_memory_id`, `memory`, and `candidate` fields for agent runtime debugging. If a pending candidate is later confirmed, Memora re-checks the current store state before writing; stale confirmations return a new `requires_confirmation` result instead of overwriting newer memory.
-
-## Configuration behavior
+## Configuration Behavior
 
 Memora's policy-related configuration fields are active in the manager/runtime write paths:
 
@@ -353,9 +357,9 @@ Memora's policy-related configuration fields are active in the manager/runtime w
 
 Manual writes remain allowed unless rejected by safety, transient-state, noisy-output, or semantic conflict policy.
 
-LLM relation judging is an integration hook, not a bundled hosted client. Construct an `LLMMemoryRelationJudge` with a compatible client and pass it to `MemoryRuntime(..., relation_judge=judge)` or `MemoryManager(..., relation_judge=judge)` while enabling `llm_relation_judge_enabled`. If the injected judge fails or returns invalid JSON, Memora falls back to the deterministic embedding relation behavior.
+LLM relation judging is an integration hook, not a bundled hosted client. Construct an `LLMMemoryRelationJudge` with a compatible client and pass it to `MemoryRuntime(..., relation_judge=judge)` or `MemoryManager(..., relation_judge=judge)` while enabling `llm_relation_judge_enabled`.
 
-## Agent runtime demo
+## Examples
 
 Run the fake agent runtime example:
 
@@ -363,15 +367,11 @@ Run the fake agent runtime example:
 python examples/simple_agent_runtime.py
 ```
 
-The demo uses `MemoryRuntime` with a local fake assistant response. It does not call an LLM.
-
 Run the offline LLM relation demo:
 
 ```bash
 python examples/llm_relation_runtime.py
 ```
-
-The demo uses scripted local relation responses to show merge, high-confidence conflict replacement, and fallback behavior without requiring an API key.
 
 Run the OpenAI relation judge demo:
 
@@ -391,6 +391,8 @@ python examples/openai_full_memory_turn_runtime.py
 
 Both OpenAI examples use the Responses API through a small adapter in `examples/openai_memory_clients.py`. Override the default model with `OPENAI_MODEL` if needed.
 
-## MVP boundaries
+## MVP Boundaries
 
-This version includes a deterministic local RAG v1 path, an LLM extraction contract, embedding-backed write-time relation detection, hash embeddings, a SQLite-backed vector index, hybrid vector + keyword retrieval, and RAG verify/rebuild diagnostics. It does not include bundled external LLM clients, external embedding providers, hosted vector databases, model rerankers, web UI, or hosted multi-tenant service.
+This version includes a deterministic local RAG v1 path, an LLM extraction contract, embedding-backed write-time relation detection, hash embeddings, a SQLite-backed vector index, hybrid vector + keyword retrieval, write-result diagnostics, and RAG verify/rebuild diagnostics.
+
+It does not include bundled external LLM clients, external embedding providers, hosted vector databases, model rerankers, web UI, or hosted multi-tenant service.

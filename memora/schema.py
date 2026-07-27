@@ -124,6 +124,12 @@ class MemoryWriteResult:
     candidate: MemoryCandidate | None = None
     reason: str = ""
     target_memory_id: str | None = None
+    relation_kind: RelationKind | None = None
+    relation_confidence: float | None = None
+    relation_reason: str = ""
+    relation_judge_status: str | None = None
+    relation_judge_error: str | None = None
+    rag_sync_errors: list[dict[str, str]] = field(default_factory=list)
 
 
 @dataclass
