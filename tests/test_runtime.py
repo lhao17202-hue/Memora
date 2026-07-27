@@ -3,8 +3,10 @@ from pathlib import Path
 import pytest
 
 from memora.config import MemoryConfig
+from memora.extraction import LLMMemoryExtractor, parse_extraction_json
 from memora.manager import MemoryManager
 from memora.runtime import MemoryRuntime
+from memora.schema import MemoryCandidate
 
 
 def make_runtime(tmp_path: Path) -> MemoryRuntime:
@@ -23,6 +25,14 @@ def make_rag_runtime(tmp_path: Path) -> MemoryRuntime:
     runtime = MemoryRuntime(config=MemoryConfig(root_dir=tmp_path / ".memora", memory_backend="sqlite", rag_enabled=True))
     runtime.init_storage()
     return runtime
+
+
+class FakeLLMClient:
+    def __init__(self, response: str):
+        self.response = response
+
+    def complete(self, messages):
+        return self.response
 
 
 def test_build_context_returns_formatted_memory(tmp_path: Path):
@@ -273,3 +283,91 @@ def test_remember_extracted_rejects_secret_without_policy_exception(tmp_path: Pa
     assert result.action == "rejected"
     assert result.reason == "contains_secret"
     assert result.memory is None
+
+
+def test_extract_memories_without_configured_extractor_does_not_write(tmp_path: Path):
+    runtime = make_runtime(tmp_path)
+
+    artifact = runtime.extract_memories([{"role": "user", "content": "Remember I prefer concise answers."}])
+    results = runtime.remember_extraction_artifact(artifact)
+
+    assert artifact.errors == ["memory_extractor_not_configured"]
+    assert results == []
+    assert runtime.manager.list_memories() == []
+
+
+def test_extract_and_remember_uses_injected_llm_extractor(tmp_path: Path):
+    runtime = make_runtime(tmp_path)
+    extractor = LLMMemoryExtractor(
+        FakeLLMClient(
+            '{"should_remember": true, "memories": ['
+            '{"type": "preference", "name": "response-style", '
+            '"description": "Response style preference.", '
+            '"content": "Prefer concise answers."},'
+            '{"type": "tool", "name": "pytest-command", '
+            '"description": "Verification command.", '
+            '"content": "Use pytest -q after changes."}'
+            "]}"
+        )
+    )
+
+    artifact, results = runtime.extract_and_remember(
+        [{"role": "user", "content": "Please be concise and use pytest -q."}],
+        extractor=extractor,
+    )
+
+    assert artifact.ok is True
+    assert [result.action for result in results] == ["created", "created"]
+    assert {memory.type for memory in runtime.manager.list_memories()} == {"preference", "tool"}
+
+
+def test_remember_extraction_artifact_returns_confirmation_for_low_confidence(tmp_path: Path):
+    runtime = make_runtime(tmp_path)
+    artifact = parse_extraction_json(
+        '{"should_remember": true, "memories": ['
+        '{"type": "preference", "name": "tentative-style", '
+        '"description": "Tentative response style.", '
+        '"content": "Maybe prefer concise answers.", '
+        '"confidence": 0.4}'
+        "]}"
+    )
+
+    results = runtime.remember_extraction_artifact(artifact)
+
+    assert [result.action for result in results] == ["requires_confirmation"]
+    assert results[0].reason == "low_confidence_extraction"
+    assert isinstance(results[0].candidate, MemoryCandidate)
+    assert runtime.manager.list_memories() == []
+
+
+def test_low_confidence_extraction_still_respects_policy_rejection(tmp_path: Path):
+    runtime = make_runtime(tmp_path)
+    artifact = parse_extraction_json(
+        '{"should_remember": true, "memories": ['
+        '{"type": "preference", "name": "secret", '
+        '"description": "Secret.", '
+        '"content": "api_key = sk-abcdef123456", '
+        '"confidence": 0.4}'
+        "]}"
+    )
+
+    results = runtime.remember_extraction_artifact(artifact)
+
+    assert [result.action for result in results] == ["rejected"]
+    assert results[0].reason == "contains_secret"
+    assert runtime.manager.list_memories() == []
+
+
+def test_invalid_extraction_artifact_does_not_write_memory(tmp_path: Path):
+    runtime = make_runtime(tmp_path)
+    artifact = parse_extraction_json(
+        '{"should_remember": true, "memories": ['
+        '{"type": "user", "name": "old", "description": "old", "content": "old"}'
+        "]}"
+    )
+
+    results = runtime.remember_extraction_artifact(artifact)
+
+    assert artifact.errors == ["memories[0].invalid_type:user"]
+    assert results == []
+    assert runtime.manager.list_memories() == []

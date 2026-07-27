@@ -545,3 +545,15 @@ Current runtime-facing context APIs:
 - `MemoryRuntime.build_context(query)`: remains the compatibility path for query-only retrieval.
 
 RAG/vector search can enhance typed on-demand retrieval when enabled. Pinned context is loaded from the selected backend by scope and policy, not by semantic vector search.
+
+## Implementation Note: Extraction APIs
+
+Current extraction-facing APIs:
+
+- `LLMMemoryExtractor(client)`: wraps an injected LLM client with a JSON-only extraction prompt.
+- `parse_extraction_json(raw_text)`: parses raw model output into an auditable `ExtractionArtifact`.
+- `MemoryRuntime.extract_memories(messages)`: extracts only; it does not write.
+- `MemoryRuntime.remember_extraction_artifact(artifact)`: writes valid extracted memories through the existing policy pipeline.
+- `MemoryRuntime.extract_and_remember(messages)`: runs extraction and then deterministic write handling.
+
+Extraction is not an authority to persist memory. Persistence still flows through validation, policy checks, confirmation handling, and backend storage.

@@ -565,3 +565,14 @@ Implemented in the second refactor pass:
 - `MemoryRuntime.retrieve_task_context(...)` and `MemoryRuntime.build_task_context(...)` combine pinned context with typed on-demand retrieval.
 - Existing `retrieve_memory(...)`, `retrieve_context(...)`, and `build_context(...)` remain available as query-only compatibility APIs.
 - RAG remains an optional retrieval enhancement and is not used for pinned context.
+
+## 10. Implementation Status: LLM Extraction Contract
+
+Implemented in the third refactor pass:
+
+- `memora/extraction.py` defines `ExtractionArtifact`, `ExtractedMemory`, `LLMClient`, `MemoryExtractor`, `LLMMemoryExtractor`, JSON prompt construction, and JSON parsing.
+- LLM extraction is optional and injected by the caller. If no extractor is configured, runtime extraction returns `memory_extractor_not_configured` and writes nothing.
+- Extraction output is auditable: raw text, parsed memories, and parser errors are preserved in the artifact.
+- Invalid JSON and invalid memory types do not write memories.
+- Low-confidence extracted memories return `requires_confirmation` instead of being written automatically.
+- `MemoryRuntime.extract_memories(...)`, `remember_extraction_artifact(...)`, and `extract_and_remember(...)` connect extraction to the existing deterministic write pipeline.

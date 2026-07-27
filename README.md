@@ -205,7 +205,7 @@ $OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 
 ## Agent memory write pipeline
 
-Memora does not call an LLM to extract memories. External RAG or LLM agent runtimes can extract candidate memories, then pass those candidates to Memora for deterministic validation, policy evaluation, writing, updating, rejection, or confirmation handling.
+Memora does not call an LLM by default. Agent runtimes can either pass explicit candidate memories to Memora, or inject an `LLMMemoryExtractor`-compatible client that returns JSON-only extraction output. Extraction produces an auditable `ExtractionArtifact`; writing still goes through deterministic validation, policy evaluation, updating, rejection, or confirmation handling.
 
 ```python
 from memora.runtime import MemoryRuntime
@@ -222,6 +222,30 @@ result = runtime.remember_extracted(
 )
 print(result.action, result.reason)
 ```
+
+Optional LLM extraction keeps extraction and writing separate:
+
+```python
+from memora.extraction import LLMMemoryExtractor
+from memora.runtime import MemoryRuntime
+
+
+class MyLLMClient:
+    def complete(self, messages):
+        # Call your model here and return JSON text only.
+        return '{"should_remember": false, "memories": []}'
+
+
+runtime = MemoryRuntime(extractor=LLMMemoryExtractor(MyLLMClient()))
+runtime.init_storage()
+
+artifact, results = runtime.extract_and_remember(
+    [{"role": "user", "content": "Please remember I prefer concise answers."}]
+)
+print(artifact.errors, [result.action for result in results])
+```
+
+If no extractor is configured, `runtime.extract_memories(...)` returns a `memory_extractor_not_configured` artifact and writes nothing.
 
 For CLI debugging, use `remember --json` to simulate an agent-extracted candidate memory and `confirm` to write a returned pending candidate after user approval:
 
