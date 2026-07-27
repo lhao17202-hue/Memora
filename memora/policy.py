@@ -69,7 +69,7 @@ class MemoryPolicy:
     def requires_auto_save_confirmation(self, candidate: MemoryCandidate) -> str | None:
         if candidate.source not in AUTO_SAVE_SOURCES:
             return None
-        if candidate.type == "user" and not self.config.allow_auto_save_user_preferences:
+        if candidate.type == "preference" and not self.config.allow_auto_save_user_preferences:
             return "auto_save_user_preferences_disabled"
         if candidate.type == "project" and not self.config.allow_auto_save_project_facts:
             return "auto_save_project_facts_disabled"

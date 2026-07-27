@@ -9,15 +9,13 @@ from datetime import datetime, timezone
 from .schema import MemoryItem, MemoryQuery, MemorySearchResult
 
 HALF_LIFE_DAYS = {
-    "user": 365,
-    "feedback": 180,
+    "preference": 365,
     "project": 90,
-    "decision": 180,
-    "session_summary": 30,
-    "tool_experience": 90,
-    "reference": 180,
+    "episodic": 45,
+    "reflective": 180,
+    "tool": 120,
     "knowledge": 180,
-    "entity": 180,
+    "general": 90,
 }
 
 FIELD_WEIGHTS = {

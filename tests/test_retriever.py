@@ -9,7 +9,7 @@ def item(name: str, content: str, weight: int = 5, status: str = "active") -> Me
         id=name,
         name=name,
         description=content,
-        type="user",
+        type="preference",
         content=content,
         weight=weight,
         status=status,
@@ -49,7 +49,7 @@ def test_type_filter_excludes_other_types():
     memory = item("project", "项目使用 pytest。")
     memory.type = "project"
 
-    results = MemoryRetriever().retrieve([memory], MemoryQuery(query="pytest", memory_types=["user"]))
+    results = MemoryRetriever().retrieve([memory], MemoryQuery(query="pytest", memory_types=["preference"]))
 
     assert results == []
 

@@ -37,8 +37,7 @@ def test_init_save_list_show_search_clean(tmp_path: Path):
     save = run_cli(
         root,
         "save",
-        "--type",
-        "user",
+        "--type", "preference",
         "--name",
         "language",
         "--description",
@@ -82,8 +81,7 @@ def test_save_secret_reports_clear_error(tmp_path: Path):
     result = run_cli(
         root,
         "save",
-        "--type",
-        "user",
+        "--type", "preference",
         "--name",
         "secret",
         "--description",
@@ -101,8 +99,7 @@ def save_language(root: Path):
     return run_cli(
         root,
         "save",
-        "--type",
-        "user",
+        "--type", "preference",
         "--name",
         "language",
         "--description",
@@ -165,11 +162,11 @@ def test_delete_command_marks_deleted_and_hard_delete_removes(tmp_path: Path):
 
 def test_search_filters_type_tag_and_top_k(tmp_path: Path):
     root = tmp_path / ".memora"
-    assert run_cli(root, "save", "--type", "user", "--name", "language", "--description", "用户偏好中文。", "--content", "用户偏好中文回答。").returncode == 0
+    assert run_cli(root, "save", "--type", "preference", "--name", "language", "--description", "用户偏好中文。", "--content", "用户偏好中文回答。").returncode == 0
     assert run_cli(root, "save", "--type", "project", "--name", "project-language", "--description", "项目使用中文。", "--content", "项目中文文档。").returncode == 0
     assert run_cli(root, "update", "language", "--tag", "language").returncode == 0
 
-    result = run_cli(root, "search", "中文", "--type", "user", "--tag", "language", "--top-k", "1")
+    result = run_cli(root, "search", "中文", "--type", "preference", "--tag", "language", "--top-k", "1")
 
     assert result.returncode == 0
     assert "language" in result.stdout
@@ -259,8 +256,7 @@ def test_sqlite_backend_cli_memory_and_session_flow(tmp_path: Path):
         "--backend",
         "sqlite",
         "save",
-        "--type",
-        "user",
+        "--type", "preference",
         "--name",
         "language",
         "--description",
@@ -313,8 +309,7 @@ def test_sqlite_backend_rag_cli_flow(tmp_path: Path):
         "sqlite",
         "--rag",
         "save",
-        "--type",
-        "user",
+        "--type", "preference",
         "--name",
         "language",
         "--description",
@@ -348,8 +343,7 @@ def test_remember_command_omitted_weight_uses_type_default(tmp_path: Path):
     result = run_cli(
         root,
         "remember",
-        "--type",
-        "user",
+        "--type", "preference",
         "--name",
         "language",
         "--description",
@@ -374,8 +368,7 @@ def test_remember_command_json_created_result(tmp_path: Path):
     result = run_cli(
         root,
         "remember",
-        "--type",
-        "user",
+        "--type", "preference",
         "--name",
         "language",
         "--description",
@@ -400,8 +393,7 @@ def test_remember_command_json_rejected_result(tmp_path: Path):
     result = run_cli(
         root,
         "remember",
-        "--type",
-        "user",
+        "--type", "preference",
         "--name",
         "secret",
         "--description",
@@ -602,8 +594,7 @@ def test_remember_command_creates_and_updates_candidate_memory(tmp_path: Path):
     created = run_cli(
         root,
         "remember",
-        "--type",
-        "user",
+        "--type", "preference",
         "--name",
         "language",
         "--description",
@@ -618,8 +609,7 @@ def test_remember_command_creates_and_updates_candidate_memory(tmp_path: Path):
     updated = run_cli(
         root,
         "remember",
-        "--type",
-        "user",
+        "--type", "preference",
         "--name",
         "language",
         "--description",
@@ -647,8 +637,7 @@ def test_remember_command_rejects_secret_as_normal_policy_result(tmp_path: Path)
     result = run_cli(
         root,
         "remember",
-        "--type",
-        "user",
+        "--type", "preference",
         "--name",
         "secret",
         "--description",

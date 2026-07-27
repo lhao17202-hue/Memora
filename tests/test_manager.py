@@ -14,7 +14,7 @@ def manager_for(tmp_path: Path) -> MemoryManager:
 def test_memory_search_result_rag_score_defaults():
     from memora.schema import MemoryItem, MemorySearchResult
 
-    item = MemoryItem(id="mem_1", name="language", description="desc", type="user", content="content")
+    item = MemoryItem(id="mem_1", name="language", description="desc", type="preference", content="content")
     result = MemorySearchResult(item, 0.5, 0.5, 0.5, 0.0, 0.5)
 
     assert result.semantic_score == 0.0
@@ -26,19 +26,19 @@ def test_save_memory_uses_config_default_weight_when_omitted(tmp_path: Path):
     manager = MemoryManager(
         MemoryConfig(
             root_dir=tmp_path / ".memora",
-            default_user_weight=10,
-            default_feedback_weight=8,
+            default_preference_weight=10,
+            default_reflective_weight=8,
             default_project_weight=6,
-            default_summary_weight=4,
-            default_tool_experience_weight=3,
+            default_episodic_weight=4,
+            default_tool_weight=3,
         )
     )
 
-    user = manager.save_memory("user", "prefers Chinese", "language", name="user-language")
-    feedback = manager.save_memory("feedback", "likes concise answers", "style", name="feedback-style")
+    user = manager.save_memory("preference", "prefers Chinese", "language", name="user-language")
+    feedback = manager.save_memory("reflective", "likes concise answers", "style", name="feedback-style")
     project = manager.save_memory("project", "uses pytest", "tests", name="project-tests")
-    summary = manager.save_memory("session_summary", "session summary", "summary", name="session-summary")
-    tool = manager.save_memory("tool_experience", "pytest worked", "tool", name="tool-pytest")
+    summary = manager.save_memory("episodic", "session summary", "summary", name="session-summary")
+    tool = manager.save_memory("tool", "pytest worked", "tool", name="tool-pytest")
 
     assert user.weight == 10
     assert feedback.weight == 8
@@ -48,9 +48,9 @@ def test_save_memory_uses_config_default_weight_when_omitted(tmp_path: Path):
 
 
 def test_explicit_weight_is_preserved_over_config_default(tmp_path: Path):
-    manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", default_user_weight=10))
+    manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", default_preference_weight=10))
 
-    item = manager.save_memory("user", "prefers Chinese", "language", name="language", weight=5)
+    item = manager.save_memory("preference", "prefers Chinese", "language", name="language", weight=5)
 
     assert item.weight == 5
 
@@ -59,7 +59,7 @@ def test_save_retrieve_and_format_memory(tmp_path: Path):
     manager = manager_for(tmp_path)
     manager.init_storage()
     manager.save_memory(
-        memory_type="user",
+        memory_type="preference",
         content="用户偏好使用中文回答。",
         description="用户偏好中文。",
         name="user-language-preference",
@@ -79,7 +79,7 @@ def test_policy_rejects_unsafe_save(tmp_path: Path):
 
     try:
         manager.save_memory(
-            memory_type="user",
+            memory_type="preference",
             content="api_key = sk-abcdef123456",
             description="secret",
             name="secret",
@@ -113,7 +113,7 @@ def test_session_append_and_get_messages(tmp_path: Path):
 
 def test_mark_memories_used_updates_access_stats(tmp_path: Path):
     manager = manager_for(tmp_path)
-    manager.save_memory("user", "用户偏好中文。", "用户偏好中文。", name="language")
+    manager.save_memory("preference", "用户偏好中文。", "用户偏好中文。", name="language")
     results = manager.retrieve_memory(query="中文")
 
     manager.mark_memories_used(results)
@@ -138,7 +138,7 @@ def test_clean_expired_memory_archives_expired(tmp_path: Path):
 
 def test_update_memory_changes_selected_fields(tmp_path: Path):
     manager = manager_for(tmp_path)
-    manager.save_memory("user", "old content", "old desc", name="language", tags=["old"], weight=5)
+    manager.save_memory("preference", "old content", "old desc", name="language", tags=["old"], weight=5)
 
     updated = manager.update_memory(
         "language",
@@ -170,7 +170,7 @@ def test_update_memory_missing_raises_not_found(tmp_path: Path):
 
 def test_archive_and_restore_memory_control_retrieval(tmp_path: Path):
     manager = manager_for(tmp_path)
-    manager.save_memory("user", "用户偏好中文。", "用户偏好中文。", name="language")
+    manager.save_memory("preference", "用户偏好中文。", "用户偏好中文。", name="language")
 
     archived = manager.archive_memory("language")
     assert archived.status == "archived"
@@ -183,7 +183,7 @@ def test_archive_and_restore_memory_control_retrieval(tmp_path: Path):
 
 def test_delete_memory_marks_deleted_by_default(tmp_path: Path):
     manager = manager_for(tmp_path)
-    manager.save_memory("user", "用户偏好中文。", "用户偏好中文。", name="language")
+    manager.save_memory("preference", "用户偏好中文。", "用户偏好中文。", name="language")
 
     manager.delete_memory("language")
     deleted = manager.memory_store.get_memory("language")
@@ -195,7 +195,7 @@ def test_delete_memory_marks_deleted_by_default(tmp_path: Path):
 
 def test_delete_memory_hard_removes_file(tmp_path: Path):
     manager = manager_for(tmp_path)
-    manager.save_memory("user", "用户偏好中文。", "用户偏好中文。", name="language")
+    manager.save_memory("preference", "用户偏好中文。", "用户偏好中文。", name="language")
 
     manager.delete_memory("language", hard=True)
 
@@ -207,7 +207,7 @@ def test_evaluate_memory_candidate_returns_decision_without_writing(tmp_path: Pa
     manager.init_storage()
     candidate = MemoryCandidate(
         action="create",
-        type="user",
+        type="preference",
         name="language",
         description="用户偏好中文。",
         content="用户偏好使用中文回答。",
@@ -228,7 +228,7 @@ def test_remember_candidate_creates_memory(tmp_path: Path):
     manager.init_storage()
     candidate = MemoryCandidate(
         action="create",
-        type="user",
+        type="preference",
         name="language",
         description="用户偏好中文。",
         content="用户偏好使用中文回答。",
@@ -246,10 +246,10 @@ def test_remember_candidate_creates_memory(tmp_path: Path):
 def test_remember_candidate_updates_duplicate_memory(tmp_path: Path):
     manager = manager_for(tmp_path)
     manager.init_storage()
-    original = manager.save_memory("user", "old content", "old desc", name="language")
+    original = manager.save_memory("preference", "old content", "old desc", name="language")
     candidate = MemoryCandidate(
         action="create",
-        type="user",
+        type="preference",
         name="language",
         description="new desc",
         content="new content",
@@ -279,7 +279,7 @@ def test_disabled_auto_save_user_returns_confirmation_without_writing(tmp_path: 
     manager.init_storage()
     candidate = MemoryCandidate(
         action="create",
-        type="user",
+        type="preference",
         name="language",
         description="用户偏好中文。",
         content="用户偏好中文回答。",
@@ -303,7 +303,7 @@ def test_manual_save_ignores_auto_save_disabled(tmp_path: Path):
         )
     )
 
-    item = manager.save_memory("user", "用户偏好中文回答。", "用户偏好中文。", name="language", source="manual")
+    item = manager.save_memory("preference", "用户偏好中文回答。", "用户偏好中文。", name="language", source="manual")
 
     assert item.name == "language"
     assert item.source == "manual"
@@ -313,8 +313,8 @@ def test_same_memory_name_is_isolated_across_users(tmp_path: Path):
     manager = manager_for(tmp_path)
     manager.init_storage()
 
-    alice = manager.save_memory("user", "Alice prefers Chinese.", "Alice language.", name="language", user_id="alice")
-    bob = manager.save_memory("user", "Bob prefers English.", "Bob language.", name="language", user_id="bob")
+    alice = manager.save_memory("preference", "Alice prefers Chinese.", "Alice language.", name="language", user_id="alice")
+    bob = manager.save_memory("preference", "Bob prefers English.", "Bob language.", name="language", user_id="bob")
 
     alice_results = manager.retrieve_memory("Chinese", user_id="alice")
     bob_results = manager.retrieve_memory("English", user_id="bob")
@@ -358,10 +358,10 @@ def test_same_memory_name_is_isolated_across_explicit_projects(tmp_path: Path):
 def test_conflict_confirmation_disabled_creates_new_memory(tmp_path: Path):
     manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", require_confirmation_for_conflicts=False))
     manager.init_storage()
-    existing = manager.save_memory("user", "用户偏好英文回答。", "用户偏好英文。", name="language-en")
+    existing = manager.save_memory("preference", "用户偏好英文回答。", "用户偏好英文。", name="language-en")
     candidate = MemoryCandidate(
         action="create",
-        type="user",
+        type="preference",
         name="language-zh",
         description="用户偏好中文。",
         content="用户偏好中文回答。",
@@ -381,7 +381,7 @@ def test_remember_candidate_rejects_secret_without_raising_policy_error(tmp_path
     manager.init_storage()
     candidate = MemoryCandidate(
         action="create",
-        type="user",
+        type="preference",
         name="secret",
         description="secret",
         content="api_key = sk-abcdef123456",
@@ -398,10 +398,10 @@ def test_remember_candidate_rejects_secret_without_raising_policy_error(tmp_path
 def test_remember_candidate_reports_conflict_without_writing(tmp_path: Path):
     manager = manager_for(tmp_path)
     manager.init_storage()
-    existing = manager.save_memory("user", "用户偏好英文回答。", "用户偏好英文。", name="language-en")
+    existing = manager.save_memory("preference", "用户偏好英文回答。", "用户偏好英文。", name="language-en")
     candidate = MemoryCandidate(
         action="create",
-        type="user",
+        type="preference",
         name="language-zh",
         description="用户偏好中文。",
         content="用户偏好中文回答。",
@@ -420,12 +420,12 @@ def test_remember_candidate_reports_conflict_without_writing(tmp_path: Path):
 
 def test_evaluate_memory_candidate_returns_enriched_confirmation(tmp_path: Path):
     manager = MemoryManager(
-        MemoryConfig(root_dir=tmp_path / ".memora", allow_auto_save_user_preferences=False, default_user_weight=10)
+        MemoryConfig(root_dir=tmp_path / ".memora", allow_auto_save_user_preferences=False, default_preference_weight=10)
     )
     manager.init_storage()
     candidate = MemoryCandidate(
         action="create",
-        type="user",
+        type="preference",
         name="language",
         description="用户偏好中文。",
         content="用户偏好中文回答。",
@@ -447,10 +447,10 @@ def test_evaluate_memory_candidate_returns_enriched_confirmation(tmp_path: Path)
 def test_disabled_auto_save_duplicate_requires_confirmation_with_target(tmp_path: Path):
     manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", allow_auto_save_user_preferences=False))
     manager.init_storage()
-    existing = manager.save_memory("user", "old content", "old desc", name="language", source="manual")
+    existing = manager.save_memory("preference", "old content", "old desc", name="language", source="manual")
     candidate = MemoryCandidate(
         action="create",
-        type="user",
+        type="preference",
         name="language",
         description="new desc",
         content="new content",
@@ -475,7 +475,7 @@ def test_confirm_memory_candidate_creates_after_confirmation(tmp_path: Path):
     pending = manager.remember_candidate(
         MemoryCandidate(
             action="create",
-            type="user",
+            type="preference",
             name="language",
             description="用户偏好中文。",
             content="用户偏好中文回答。",
@@ -495,11 +495,11 @@ def test_confirm_memory_candidate_creates_after_confirmation(tmp_path: Path):
 def test_confirm_memory_candidate_updates_duplicate_target(tmp_path: Path):
     manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", allow_auto_save_user_preferences=False))
     manager.init_storage()
-    existing = manager.save_memory("user", "old content", "old desc", name="language", source="manual")
+    existing = manager.save_memory("preference", "old content", "old desc", name="language", source="manual")
     pending = manager.remember_candidate(
         MemoryCandidate(
             action="create",
-            type="user",
+            type="preference",
             name="language",
             description="new desc",
             content="new content",
@@ -519,11 +519,11 @@ def test_confirm_memory_candidate_updates_duplicate_target(tmp_path: Path):
 def test_confirm_memory_candidate_updates_conflict_target(tmp_path: Path):
     manager = manager_for(tmp_path)
     manager.init_storage()
-    existing = manager.save_memory("user", "用户偏好英文回答。", "用户偏好英文。", name="language-en")
+    existing = manager.save_memory("preference", "用户偏好英文回答。", "用户偏好英文。", name="language-en")
     pending = manager.remember_candidate(
         MemoryCandidate(
             action="create",
-            type="user",
+            type="preference",
             name="language-zh",
             description="用户偏好中文。",
             content="用户偏好中文回答。",
@@ -544,14 +544,14 @@ def test_confirm_memory_candidate_detects_stale_create_candidate_after_duplicate
     pending = manager.remember_candidate(
         MemoryCandidate(
             action="create",
-            type="user",
+            type="preference",
             name="language",
             description="first desc",
             content="first content",
             source="runtime_extraction",
         )
     )
-    newer = manager.save_memory("user", "second content", "second desc", name="language", source="manual")
+    newer = manager.save_memory("preference", "second content", "second desc", name="language", source="manual")
 
     result = manager.confirm_memory_candidate(pending.candidate)
 
@@ -566,11 +566,11 @@ def test_confirm_memory_candidate_detects_stale_create_candidate_after_duplicate
 def test_confirm_memory_candidate_detects_stale_update_target(tmp_path: Path):
     manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", allow_auto_save_user_preferences=False))
     manager.init_storage()
-    existing = manager.save_memory("user", "old content", "old desc", name="language", source="manual")
+    existing = manager.save_memory("preference", "old content", "old desc", name="language", source="manual")
     pending = manager.remember_candidate(
         MemoryCandidate(
             action="create",
-            type="user",
+            type="preference",
             name="language",
             description="first desc",
             content="first content",
@@ -592,11 +592,11 @@ def test_confirm_memory_candidate_detects_stale_update_target(tmp_path: Path):
 def test_confirm_memory_candidate_rejects_create_override_when_current_policy_suggests_update(tmp_path: Path):
     manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", allow_auto_save_user_preferences=False))
     manager.init_storage()
-    existing = manager.save_memory("user", "old content", "old desc", name="language", source="manual")
+    existing = manager.save_memory("preference", "old content", "old desc", name="language", source="manual")
     pending = manager.remember_candidate(
         MemoryCandidate(
             action="create",
-            type="user",
+            type="preference",
             name="language",
             description="new desc",
             content="new content",
@@ -618,12 +618,12 @@ def test_confirm_memory_candidate_rejects_create_override_when_current_policy_su
 def test_confirm_memory_candidate_rejects_target_override_that_differs_from_current_policy_target(tmp_path: Path):
     manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", allow_auto_save_user_preferences=False))
     manager.init_storage()
-    target_a = manager.save_memory("user", "a old content", "a old desc", name="a", source="manual")
-    target_b = manager.save_memory("user", "b old content", "b old desc", name="b", source="manual")
+    target_a = manager.save_memory("preference", "a old content", "a old desc", name="a", source="manual")
+    target_b = manager.save_memory("preference", "b old content", "b old desc", name="b", source="manual")
     pending = manager.remember_candidate(
         MemoryCandidate(
             action="create",
-            type="user",
+            type="preference",
             name="a",
             description="a new desc",
             content="a new content",
@@ -644,7 +644,7 @@ def test_confirm_memory_candidate_rejects_target_override_that_differs_from_curr
 
 def test_confirm_memory_candidate_rejects_non_confirmation_candidate(tmp_path: Path):
     manager = manager_for(tmp_path)
-    candidate = MemoryCandidate(action="create", type="user", name="language", description="desc", content="content")
+    candidate = MemoryCandidate(action="create", type="preference", name="language", description="desc", content="content")
 
     try:
         manager.confirm_memory_candidate(candidate)
@@ -660,7 +660,7 @@ def test_confirm_memory_candidate_rejects_secret_candidate_without_writing(tmp_p
     candidate = MemoryCandidate(
         action="ask_user",
         suggested_action="create",
-        type="user",
+        type="preference",
         name="secret",
         description="secret",
         content="api_key = sk-abcdef123456",
@@ -683,7 +683,7 @@ def test_confirm_memory_candidate_rejects_transient_candidate_without_writing(tm
     candidate = MemoryCandidate(
         action="ask_user",
         suggested_action="create",
-        type="user",
+        type="preference",
         name="transient",
         description="transient",
         content="下一步：实现 CLI",
@@ -706,7 +706,7 @@ def test_confirm_memory_candidate_rejects_noisy_candidate_without_writing(tmp_pa
     candidate = MemoryCandidate(
         action="ask_user",
         suggested_action="create",
-        type="user",
+        type="preference",
         name="noisy",
         description="noisy",
         content="x" * 11,
@@ -728,7 +728,7 @@ def test_confirm_memory_candidate_rejects_invalid_suggested_action(tmp_path: Pat
     candidate = MemoryCandidate(
         action="ask_user",
         suggested_action="delete",
-        type="user",
+        type="preference",
         name="language",
         description="desc",
         content="content",
@@ -748,7 +748,7 @@ def test_confirm_memory_candidate_update_requires_target(tmp_path: Path):
     candidate = MemoryCandidate(
         action="ask_user",
         suggested_action="update",
-        type="user",
+        type="preference",
         name="language",
         description="desc",
         content="content",
@@ -769,7 +769,7 @@ def test_confirm_memory_candidate_missing_target_raises_not_found(tmp_path: Path
         action="ask_user",
         suggested_action="update",
         target_memory_id="missing",
-        type="user",
+        type="preference",
         name="language",
         description="desc",
         content="content",
@@ -797,7 +797,7 @@ def test_confirm_memory_candidate_syncs_rag_index(tmp_path: Path):
     pending = manager.remember_candidate(
         MemoryCandidate(
             action="create",
-            type="user",
+            type="preference",
             name="language",
             description="用户偏好中文。",
             content="用户偏好中文回答。",

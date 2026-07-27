@@ -46,9 +46,9 @@ The build step verifies both source and wheel distributions. Memora remains loca
 
 ```bash
 python -m memora --root .memora init
-python -m memora --root .memora save --type user --name language --description "用户偏好中文。" --content "用户偏好使用中文回答。"
-python -m memora --root .memora remember --type user --name language --description "用户偏好中文。" --content "用户偏好使用中文回答。" --session session_1 --tag preference
-python -m memora --root .memora remember --type user --name language-json --description "用户偏好中文。" --content "用户偏好使用中文回答。" --json
+python -m memora --root .memora save --type preference --name language --description "用户偏好中文。" --content "用户偏好使用中文回答。"
+python -m memora --root .memora remember --type preference --name language --description "用户偏好中文。" --content "用户偏好使用中文回答。" --session session_1 --tag preference
+python -m memora --root .memora remember --type preference --name language-json --description "用户偏好中文。" --content "用户偏好使用中文回答。" --json
 python -m memora --root .memora list
 python -m memora --root .memora search "中文回答"
 python -m memora --root .memora show language
@@ -56,7 +56,7 @@ python -m memora --root .memora update language --tag language --weight 8
 python -m memora --root .memora archive language
 python -m memora --root .memora list --archived
 python -m memora --root .memora restore language
-python -m memora --root .memora search "中文回答" --type user --tag language --top-k 5
+python -m memora --root .memora search "中文回答" --type preference --tag language --top-k 5
 python -m memora --root .memora delete language
 python -m memora --root .memora list --all
 python -m memora --root .memora session append session_1 --role user --content "hello"
@@ -77,7 +77,7 @@ Use `--backend sqlite` to store memories in SQLite at `<root>/memora.sqlite3`:
 
 ```bash
 python -m memora --root .memora --backend sqlite init
-python -m memora --root .memora --backend sqlite save --type user --name language --description "用户偏好中文。" --content "用户偏好使用中文回答。"
+python -m memora --root .memora --backend sqlite save --type preference --name language --description "用户偏好中文。" --content "用户偏好使用中文回答。"
 python -m memora --root .memora --backend sqlite search "中文回答"
 python -m memora --root .memora --backend sqlite verify
 python -m memora --root .memora --backend sqlite rebuild-index
@@ -91,7 +91,7 @@ RAG is disabled by default. Enable the deterministic local RAG path with `--rag`
 
 ```bash
 python -m memora --root .memora --backend sqlite --rag init
-python -m memora --root .memora --backend sqlite --rag save --type user --name language --description "用户偏好中文。" --content "用户偏好使用中文回答。"
+python -m memora --root .memora --backend sqlite --rag save --type preference --name language --description "用户偏好中文。" --content "用户偏好使用中文回答。"
 python -m memora --root .memora --backend sqlite --rag search "中文回答"
 python -m memora --root .memora --backend sqlite --rag verify
 python -m memora --root .memora --backend sqlite --rag rebuild-index
@@ -127,7 +127,7 @@ python -m memora --root .memora --backend sqlite import memories.json
 Validation and policy failures are reported to stderr and return a non-zero exit code:
 
 ```bash
-python -m memora --root .memora save --type user --name secret --description "secret" --content "api_key = sk-abcdef123456"
+python -m memora --root .memora save --type preference --name secret --description "secret" --content "api_key = sk-abcdef123456"
 # stderr: error: memory rejected: contains_secret
 ```
 
@@ -153,7 +153,7 @@ from memora.manager import MemoryManager
 manager = MemoryManager()
 manager.init_storage()
 manager.save_memory(
-    memory_type="user",
+    memory_type="preference",
     name="language",
     description="用户偏好中文。",
     content="用户偏好使用中文回答。",
@@ -204,7 +204,7 @@ runtime = MemoryRuntime()
 runtime.init_storage()
 
 result = runtime.remember_extracted(
-    memory_type="user",
+    memory_type="preference",
     name="language",
     description="用户偏好中文。",
     content="用户偏好使用中文回答。",
@@ -216,14 +216,14 @@ print(result.action, result.reason)
 For CLI debugging, use `remember --json` to simulate an agent-extracted candidate memory and `confirm` to write a returned pending candidate after user approval:
 
 ```bash
-python -m memora --root .memora remember --type user --name language --description "用户偏好中文。" --content "用户偏好使用中文回答。" --session session_1 --json > candidate.json
+python -m memora --root .memora remember --type preference --name language --description "用户偏好中文。" --content "用户偏好使用中文回答。" --session session_1 --json > candidate.json
 python -m memora --root .memora confirm --candidate candidate.json --json
 ```
 
 On Windows PowerShell, prefer explicit UTF-8 output for candidate files:
 
 ```powershell
-python -m memora --root .memora remember --type user --name language --description "用户偏好中文。" --content "用户偏好使用中文回答。" --session session_1 --json | Set-Content -Encoding utf8 candidate.json
+python -m memora --root .memora remember --type preference --name language --description "用户偏好中文。" --content "用户偏好使用中文回答。" --session session_1 --json | Set-Content -Encoding utf8 candidate.json
 python -m memora --root .memora confirm --candidate candidate.json --json
 ```
 
@@ -233,7 +233,7 @@ Policy outcomes such as `rejected` and `requires_confirmation` are returned as n
 
 ```python
 result = runtime.remember_extracted(
-    memory_type="user",
+    memory_type="preference",
     name="language",
     description="用户偏好中文。",
     content="用户偏好中文回答。",
@@ -250,7 +250,7 @@ CLI `remember --json` prints machine-readable write results with `action`, `reas
 Memora's policy-related configuration fields are active in the manager/runtime write paths:
 
 - `max_memory_content_chars` controls the noisy-output content length limit.
-- omitted write weights use type-specific defaults such as `default_user_weight`, `default_feedback_weight`, `default_project_weight`, `default_summary_weight`, and `default_tool_experience_weight`.
+- omitted write weights use type-specific defaults such as `default_preference_weight`, `default_project_weight`, `default_episodic_weight`, `default_reflective_weight`, `default_tool_weight`, `default_knowledge_weight`, and `default_general_weight`.
 - explicit write weights are preserved.
 - `allow_auto_save_user_preferences` and `allow_auto_save_project_facts` control whether automatic `runtime_extraction`, `session_extraction`, and `conversation` candidates can be written without confirmation.
 - disabled auto-save returns `requires_confirmation`, not `rejected`.

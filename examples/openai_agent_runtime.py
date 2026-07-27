@@ -85,8 +85,8 @@ def extract_memory_candidate(client: OpenAI, user_message: str, assistant_messag
                     "Return JSON only. If nothing should be remembered, return "
                     "{\"should_remember\": false}. If something should be remembered, "
                     "return an object with: should_remember=true, type, name, "
-                    "description, content, tags. Use type=user for user preferences, "
-                    "type=project for project facts, or type=tool_experience for reusable workflow lessons."
+                    "description, content, tags. Use type=preference for user preferences, "
+                    "type=project for project facts, or type=tool for reusable workflow lessons."
                 ),
             },
             {

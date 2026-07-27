@@ -8,7 +8,7 @@ def candidate(content: str, name: str = "memory") -> MemoryCandidate:
         action="create",
         name=name,
         description="desc",
-        type="user",
+        type="preference",
         content=content,
     )
 
@@ -122,7 +122,7 @@ def test_auto_save_user_preferences_disabled_requires_confirmation():
     policy = MemoryPolicy(MemoryConfig(allow_auto_save_user_preferences=False))
     item = candidate("用户偏好中文回答。", name="language")
     item.source = "runtime_extraction"
-    item.type = "user"
+    item.type = "preference"
 
     result = policy.evaluate(item, [])
 
@@ -134,10 +134,10 @@ def test_auto_save_user_preferences_disabled_requires_confirmation():
 
 def test_auto_save_user_preferences_disabled_duplicate_includes_update_target():
     policy = MemoryPolicy(MemoryConfig(allow_auto_save_user_preferences=False))
-    existing = [MemoryItem(id="mem_1", name="language", description="old", type="user", content="old")]
+    existing = [MemoryItem(id="mem_1", name="language", description="old", type="preference", content="old")]
     item = candidate("用户偏好中文回答。", name="language")
     item.source = "runtime_extraction"
-    item.type = "user"
+    item.type = "preference"
 
     result = policy.evaluate(item, existing)
 
@@ -161,7 +161,7 @@ def test_auto_save_project_facts_disabled_requires_confirmation():
 
 
 def test_same_name_updates_existing_memory():
-    existing = [MemoryItem(id="mem_1", name="user-language", description="old", type="user", content="old")]
+    existing = [MemoryItem(id="mem_1", name="user-language", description="old", type="preference", content="old")]
 
     result = MemoryPolicy().evaluate(candidate("new", name="user-language"), existing)
 
@@ -177,7 +177,7 @@ def test_conflict_requires_confirmation_for_same_type_different_content():
             id="mem_1",
             name="user-language-en",
             description="User prefers English.",
-            type="user",
+            type="preference",
             content="用户偏好英文回答。",
         )
     ]
@@ -197,7 +197,7 @@ def test_conflict_confirmation_can_be_disabled():
             id="mem_1",
             name="user-language-en",
             description="User prefers English.",
-            type="user",
+            type="preference",
             content="用户偏好英文回答。",
         )
     ]

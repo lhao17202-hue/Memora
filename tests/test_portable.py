@@ -20,7 +20,7 @@ def sqlite_manager_for(tmp_path: Path) -> MemoryManager:
 
 def test_export_memories_writes_versioned_json_with_all_statuses(tmp_path: Path):
     manager = manager_for(tmp_path)
-    active = manager.save_memory("user", "active content", "active desc", name="active")
+    active = manager.save_memory("preference", "active content", "active desc", name="active")
     archived = manager.archive_memory(active.id)
     deleted = manager.save_memory("project", "deleted content", "deleted desc", name="deleted")
     manager.delete_memory(deleted.id)
@@ -37,12 +37,12 @@ def test_export_memories_writes_versioned_json_with_all_statuses(tmp_path: Path)
 
 def test_import_memories_imports_new_and_skips_duplicates(tmp_path: Path):
     source = manager_for(tmp_path / "source")
-    source.save_memory("user", "用户偏好中文回答。", "用户偏好中文。", name="language")
+    source.save_memory("preference", "用户偏好中文回答。", "用户偏好中文。", name="language")
     export_path = tmp_path / "memories.json"
     source.export_memories(export_path)
 
     target = manager_for(tmp_path / "target")
-    target.save_memory("user", "existing", "existing", name="language")
+    target.save_memory("preference", "existing", "existing", name="language")
 
     report = target.import_memories(export_path)
 
@@ -63,7 +63,7 @@ def test_import_memories_reports_item_errors_and_continues(tmp_path: Path):
                         "id": "mem_good",
                         "name": "good",
                         "description": "good desc",
-                        "type": "user",
+                        "type": "preference",
                         "content": "good content",
                         "user_id": "default",
                         "project_id": None,
@@ -99,7 +99,7 @@ def test_import_memories_reports_item_errors_and_continues(tmp_path: Path):
 
 def test_verify_memories_reports_index_health_and_rebuild_repairs(tmp_path: Path):
     manager = manager_for(tmp_path)
-    manager.save_memory("user", "content", "description", name="language")
+    manager.save_memory("preference", "content", "description", name="language")
 
     healthy = manager.verify_memories()
     assert healthy["checked"] == 1
@@ -118,7 +118,7 @@ def test_verify_memories_reports_index_health_and_rebuild_repairs(tmp_path: Path
 
 def test_file_to_sqlite_to_file_export_import_round_trip(tmp_path: Path):
     file_source = manager_for(tmp_path / "file-source")
-    original = file_source.save_memory("user", "用户偏好中文回答。", "用户偏好中文。", name="language", tags=["language"])
+    original = file_source.save_memory("preference", "用户偏好中文回答。", "用户偏好中文。", name="language", tags=["language"])
     export_path = tmp_path / "file-export.json"
     sqlite_export_path = tmp_path / "sqlite-export.json"
 
@@ -143,7 +143,7 @@ def test_file_to_sqlite_to_file_export_import_round_trip(tmp_path: Path):
 
 def test_backup_writes_same_format_as_export(tmp_path: Path):
     manager = manager_for(tmp_path)
-    manager.save_memory("user", "content", "description", name="language")
+    manager.save_memory("preference", "content", "description", name="language")
     path = tmp_path / "backup.json"
 
     report = manager.backup(path)

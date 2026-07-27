@@ -8,7 +8,7 @@ def result(content: str) -> MemorySearchResult:
             id="mem_1",
             name="language",
             description="用户偏好中文。",
-            type="user",
+            type="preference",
             content=content,
             confidence=1.0,
         ),

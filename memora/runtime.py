@@ -35,7 +35,7 @@ class MemoryRuntime:
         workspace_id: str | None = None,
     ) -> MemoryItem:
         return self.manager.save_memory(
-            memory_type="session_summary",
+            memory_type="episodic",
             name=f"{session_id}-summary",
             description=f"Summary for session {session_id}",
             content=content,

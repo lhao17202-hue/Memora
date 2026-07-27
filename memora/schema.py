@@ -9,15 +9,13 @@ from typing import Literal
 from .errors import MemoryValidationError
 
 MemoryType = Literal[
-    "user",
-    "feedback",
+    "preference",
     "project",
-    "decision",
-    "entity",
-    "session_summary",
-    "tool_experience",
-    "reference",
+    "episodic",
+    "reflective",
+    "tool",
     "knowledge",
+    "general",
 ]
 
 MemoryStatus = Literal["active", "archived", "deleted"]
@@ -26,15 +24,13 @@ CandidateAction = Literal["create", "update", "archive", "delete", "reject", "as
 SuggestedAction = Literal["create", "update"]
 
 VALID_MEMORY_TYPES = (
-    "user",
-    "feedback",
+    "preference",
     "project",
-    "decision",
-    "entity",
-    "session_summary",
-    "tool_experience",
-    "reference",
+    "episodic",
+    "reflective",
+    "tool",
     "knowledge",
+    "general",
 )
 
 VALID_MEMORY_STATUSES = ("active", "archived", "deleted")

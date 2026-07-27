@@ -28,7 +28,7 @@ def make_rag_runtime(tmp_path: Path) -> MemoryRuntime:
 def test_build_context_returns_formatted_memory(tmp_path: Path):
     runtime = make_runtime(tmp_path)
     runtime.manager.save_memory(
-        memory_type="user",
+        memory_type="preference",
         name="language",
         description="用户偏好中文。",
         content="用户偏好使用中文回答。",
@@ -42,7 +42,7 @@ def test_build_context_returns_formatted_memory(tmp_path: Path):
 def test_retrieve_context_and_mark_context_used_updates_access_count(tmp_path: Path):
     runtime = make_runtime(tmp_path)
     item = runtime.manager.save_memory(
-        memory_type="user",
+        memory_type="preference",
         name="language",
         description="用户偏好中文。",
         content="用户偏好使用中文回答。",
@@ -68,18 +68,18 @@ def test_remember_message_appends_session_message(tmp_path: Path):
     assert messages[0].content == "hello"
 
 
-def test_remember_summary_saves_session_summary_memory(tmp_path: Path):
+def test_remember_summary_saves_episodic_memory(tmp_path: Path):
     runtime = make_runtime(tmp_path)
 
     item = runtime.remember_summary("session_1", "summary text")
 
-    assert item.type == "session_summary"
+    assert item.type == "episodic"
     assert item.source == "runtime"
     assert item.content == "summary text"
 
 
-def test_remember_summary_uses_config_default_summary_weight(tmp_path: Path):
-    runtime = MemoryRuntime(config=MemoryConfig(root_dir=tmp_path / ".memora", default_summary_weight=7))
+def test_remember_summary_uses_config_default_episodic_weight(tmp_path: Path):
+    runtime = MemoryRuntime(config=MemoryConfig(root_dir=tmp_path / ".memora", default_episodic_weight=7))
     runtime.init_storage()
 
     item = runtime.remember_summary("session_1", "summary text")
@@ -98,7 +98,7 @@ def test_remember_extracted_creates_memory(tmp_path: Path):
     runtime = make_runtime(tmp_path)
 
     result = runtime.remember_extracted(
-        memory_type="user",
+        memory_type="preference",
         name="language",
         description="用户偏好中文。",
         content="用户偏好使用中文回答。",
@@ -114,7 +114,7 @@ def test_remember_extracted_with_session_id_records_session_source(tmp_path: Pat
     runtime = make_runtime(tmp_path)
 
     result = runtime.remember_extracted(
-        memory_type="user",
+        memory_type="preference",
         name="language",
         description="用户偏好中文。",
         content="用户偏好使用中文回答。",
@@ -132,7 +132,7 @@ def test_sqlite_runtime_save_retrieve_remember_and_mark_used(tmp_path: Path):
     runtime = make_sqlite_runtime(tmp_path)
 
     created = runtime.remember_extracted(
-        memory_type="user",
+        memory_type="preference",
         name="language",
         description="用户偏好中文。",
         content="用户偏好使用中文回答。",
@@ -154,7 +154,7 @@ def test_rag_runtime_uses_existing_top_level_api(tmp_path: Path):
     runtime = make_rag_runtime(tmp_path)
 
     created = runtime.remember_extracted(
-        memory_type="user",
+        memory_type="preference",
         name="language",
         description="用户偏好中文。",
         content="用户偏好使用中文回答。",
@@ -177,7 +177,7 @@ def test_runtime_remember_extracted_respects_disabled_auto_save(tmp_path: Path):
     runtime.init_storage()
 
     result = runtime.remember_extracted(
-        memory_type="user",
+        memory_type="preference",
         name="language",
         description="用户偏好中文。",
         content="用户偏好中文回答。",
@@ -195,7 +195,7 @@ def test_runtime_confirm_memory_candidate_persists_pending_candidate(tmp_path: P
     runtime = MemoryRuntime(config=MemoryConfig(root_dir=tmp_path / ".memora", allow_auto_save_user_preferences=False))
     runtime.init_storage()
     pending = runtime.remember_extracted(
-        memory_type="user",
+        memory_type="preference",
         name="language",
         description="用户偏好中文。",
         content="用户偏好中文回答。",
@@ -215,7 +215,7 @@ def test_remember_extracted_rejects_secret_without_policy_exception(tmp_path: Pa
     runtime = make_runtime(tmp_path)
 
     result = runtime.remember_extracted(
-        memory_type="user",
+        memory_type="preference",
         name="secret",
         description="secret",
         content="api_key = sk-abcdef123456",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+from tempfile import mkdtemp
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -18,11 +19,11 @@ def fake_agent_response(user_message: str, memory_context: str) -> str:
 
 
 def main() -> None:
-    runtime = MemoryRuntime(config=MemoryConfig(root_dir=Path(".memora-demo")))
+    runtime = MemoryRuntime(config=MemoryConfig(root_dir=Path(mkdtemp(prefix="memora-demo-"))))
     runtime.init_storage()
 
     runtime.manager.save_memory(
-        memory_type="user",
+        memory_type="preference",
         name="language",
         description="用户偏好中文。",
         content="用户偏好使用中文回答。",

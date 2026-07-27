@@ -120,14 +120,18 @@ class MemoryManager:
         )
 
     def _default_weight_for_type(self, memory_type: str) -> int:
-        if memory_type == "user":
-            return self.config.default_user_weight
-        if memory_type == "feedback":
-            return self.config.default_feedback_weight
-        if memory_type == "session_summary":
-            return self.config.default_summary_weight
-        if memory_type == "tool_experience":
-            return self.config.default_tool_experience_weight
+        if memory_type == "preference":
+            return self.config.default_preference_weight
+        if memory_type == "episodic":
+            return self.config.default_episodic_weight
+        if memory_type == "reflective":
+            return self.config.default_reflective_weight
+        if memory_type == "tool":
+            return self.config.default_tool_weight
+        if memory_type == "knowledge":
+            return self.config.default_knowledge_weight
+        if memory_type == "general":
+            return self.config.default_general_weight
         return self.config.default_project_weight
 
     def _resolve_candidate_defaults(self, candidate: MemoryCandidate) -> MemoryCandidate:

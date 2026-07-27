@@ -40,7 +40,7 @@ def test_memory_embedding_text_contains_searchable_memory_fields():
     item = MemoryItem(
         id="mem_1",
         name="language",
-        type="user",
+        type="preference",
         description="用户偏好中文。",
         content="用户偏好使用中文回答。",
         tags=["preference", "language"],
@@ -49,7 +49,7 @@ def test_memory_embedding_text_contains_searchable_memory_fields():
     text = memory_embedding_text(item)
 
     assert "name: language" in text
-    assert "type: user" in text
+    assert "type: preference" in text
     assert "description: 用户偏好中文。" in text
     assert "tags: preference, language" in text
     assert "content: 用户偏好使用中文回答。" in text

@@ -29,7 +29,7 @@ def test_rag_factories_support_only_v1_values(tmp_path):
 
 
 def test_rerankers_are_deterministic():
-    item = MemoryItem(id="mem_1", name="one", description="desc", type="user", content="content")
+    item = MemoryItem(id="mem_1", name="one", description="desc", type="preference", content="content")
     low = MemorySearchResult(item, 0.1, 0.1, 0.1, 0.0, 0.1)
     high = MemorySearchResult(item, 0.9, 0.1, 0.1, 0.0, 0.9)
     query = MemoryQuery(query="content")
@@ -40,7 +40,7 @@ def test_rerankers_are_deterministic():
 
 def test_build_vector_metadata_tracks_hash_and_provider(tmp_path):
     manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", rag_enabled=True))
-    item = manager.save_memory("user", "用户偏好中文回答。", "用户偏好中文。", name="language")
+    item = manager.save_memory("preference", "用户偏好中文回答。", "用户偏好中文。", name="language")
     text = "first text"
     changed = "changed text"
 
@@ -61,7 +61,7 @@ def test_config_defaults_min_semantic_score_for_rag():
 def test_rag_enabled_manager_retrieves_vector_synced_memory(tmp_path):
     manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", rag_enabled=True))
     manager.init_storage()
-    item = manager.save_memory("user", "alpha retrieval marker", "stored vector memory", name="vector-memory")
+    item = manager.save_memory("preference", "alpha retrieval marker", "stored vector memory", name="vector-memory")
 
     results = manager.retrieve_memory("alpha")
     report = manager.verify_memories()
@@ -77,8 +77,8 @@ def test_rag_enabled_manager_retrieves_vector_synced_memory(tmp_path):
 def test_rag_revalidates_vector_hits_by_user_scope(tmp_path):
     manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", rag_enabled=True))
     manager.init_storage()
-    alice = manager.save_memory("user", "shared retrieval marker", "Alice memory", name="alice-memory", user_id="alice")
-    bob = manager.save_memory("user", "shared retrieval marker", "Bob memory", name="bob-memory", user_id="bob")
+    alice = manager.save_memory("preference", "shared retrieval marker", "Alice memory", name="alice-memory", user_id="alice")
+    bob = manager.save_memory("preference", "shared retrieval marker", "Bob memory", name="bob-memory", user_id="bob")
 
     alice_results = manager.retrieve_memory("shared retrieval marker", user_id="alice")
     bob_results = manager.retrieve_memory("shared retrieval marker", user_id="bob")
@@ -90,7 +90,7 @@ def test_rag_revalidates_vector_hits_by_user_scope(tmp_path):
 def test_rag_archive_delete_restore_and_rebuild_vector_index(tmp_path):
     manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", rag_enabled=True))
     manager.init_storage()
-    item = manager.save_memory("user", "restore retrieval marker", "restorable", name="restorable")
+    item = manager.save_memory("preference", "restore retrieval marker", "restorable", name="restorable")
 
     manager.archive_memory("restorable")
     assert manager.verify_memories()["vector_missing"] == []
@@ -118,7 +118,7 @@ def test_rag_import_syncs_vector_index(tmp_path):
     export_path = tmp_path / "memories.json"
     source.init_storage()
     target.init_storage()
-    source.save_memory("user", "import retrieval marker", "imported memory", name="imported")
+    source.save_memory("preference", "import retrieval marker", "imported memory", name="imported")
     source.export_memories(export_path)
 
     report = target.import_memories(export_path)
@@ -138,7 +138,7 @@ def test_rag_import_rebuild_failure_preserves_import_report(tmp_path):
     export_path = tmp_path / "memories.json"
     source.init_storage()
     target.init_storage()
-    source.save_memory("user", "import failure marker", "imported memory", name="imported")
+    source.save_memory("preference", "import failure marker", "imported memory", name="imported")
     source.export_memories(export_path)
 
     class BrokenRagIndex:
@@ -200,7 +200,7 @@ def test_rag_sync_failure_does_not_break_memory_write(tmp_path):
 
     manager.rag_index = BrokenRagIndex()
 
-    item = manager.save_memory("user", "content", "description", name="safe-write")
+    item = manager.save_memory("preference", "content", "description", name="safe-write")
     report = manager.verify_memories()
 
     assert item.name == "safe-write"
@@ -221,7 +221,7 @@ def test_rag_sync_failure_does_not_break_memory_write(tmp_path):
 def test_rag_filters_low_semantic_only_candidates(tmp_path):
     manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", rag_enabled=True, min_semantic_score=0.25))
     manager.init_storage()
-    weak = manager.save_memory("user", "unrelated alpha", "unrelated", name="weak-vector")
+    weak = manager.save_memory("preference", "unrelated alpha", "unrelated", name="weak-vector")
     allowed = {weak.id: weak}
     merged = manager.rag_retriever._merge(
         allowed,
@@ -237,7 +237,7 @@ def test_rag_filters_low_semantic_only_candidates(tmp_path):
 def test_rag_keeps_low_semantic_hybrid_candidate_when_keyword_matches(tmp_path):
     manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", rag_enabled=True, min_semantic_score=0.25))
     manager.init_storage()
-    hybrid = manager.save_memory("user", "pytest fixture details", "pytest fixture", name="hybrid")
+    hybrid = manager.save_memory("preference", "pytest fixture details", "pytest fixture", name="hybrid")
     allowed = {hybrid.id: hybrid}
     merged = manager.rag_retriever._merge(
         allowed,
@@ -255,8 +255,8 @@ def test_rag_keeps_low_semantic_hybrid_candidate_when_keyword_matches(tmp_path):
 def test_rag_keyword_match_ranks_above_hash_vector_only_candidate(tmp_path):
     manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", rag_enabled=True, min_semantic_score=0.25))
     manager.init_storage()
-    vector_only = manager.save_memory("user", "unrelated content", "unrelated", name="vector-only", weight=1)
-    keyword = manager.save_memory("user", "pytest fixture details", "pytest fixture", name="keyword", weight=1)
+    vector_only = manager.save_memory("preference", "unrelated content", "unrelated", name="vector-only", weight=1)
+    keyword = manager.save_memory("preference", "pytest fixture details", "pytest fixture", name="keyword", weight=1)
     allowed = {vector_only.id: vector_only, keyword.id: keyword}
     merged = manager.rag_retriever._merge(
         allowed,
@@ -277,7 +277,7 @@ def test_rag_keyword_match_ranks_above_hash_vector_only_candidate(tmp_path):
 def test_rag_merge_deduplicates_vector_and_keyword_candidates_by_memory_id(tmp_path):
     manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", rag_enabled=True))
     manager.init_storage()
-    shared = manager.save_memory("user", "shared retrieval marker", "shared retrieval marker", name="shared")
+    shared = manager.save_memory("preference", "shared retrieval marker", "shared retrieval marker", name="shared")
     allowed = {shared.id: shared}
     merged = manager.rag_retriever._merge(
         allowed,

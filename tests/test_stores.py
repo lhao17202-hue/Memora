@@ -30,7 +30,7 @@ def test_save_list_get_and_rebuild_index(tmp_path: Path):
         id="mem_1",
         name="User Language Preference",
         description="用户偏好中文。",
-        type="user",
+        type="preference",
         content="用户偏好使用中文讨论技术问题。",
         tags=["language"],
     )
@@ -58,7 +58,7 @@ def test_file_memory_store_keeps_same_name_in_different_user_scopes(tmp_path: Pa
             id="mem_alice",
             name="language",
             description="Alice language.",
-            type="user",
+            type="preference",
             content="Alice prefers Chinese.",
             user_id="alice",
         )
@@ -68,7 +68,7 @@ def test_file_memory_store_keeps_same_name_in_different_user_scopes(tmp_path: Pa
             id="mem_bob",
             name="language",
             description="Bob language.",
-            type="user",
+            type="preference",
             content="Bob prefers English.",
             user_id="bob",
         )
@@ -204,7 +204,7 @@ def test_session_store_rejects_invalid_message_role(tmp_path: Path):
 
 def test_set_memory_status_archives_and_restores(tmp_path: Path):
     store = FileMemoryStore(config_for(tmp_path))
-    store.save_memory(MemoryItem(id="mem_1", name="language", description="desc", type="user", content="body"))
+    store.save_memory(MemoryItem(id="mem_1", name="language", description="desc", type="preference", content="body"))
 
     archived = store.set_memory_status("language", "archived")
     assert archived.status == "archived"
@@ -224,7 +224,7 @@ def test_set_memory_status_missing_raises_not_found(tmp_path: Path):
 
 def test_hard_delete_memory_removes_file(tmp_path: Path):
     store = FileMemoryStore(config_for(tmp_path))
-    store.save_memory(MemoryItem(id="mem_1", name="language", description="desc", type="user", content="body"))
+    store.save_memory(MemoryItem(id="mem_1", name="language", description="desc", type="preference", content="body"))
 
     store.hard_delete_memory("language")
 

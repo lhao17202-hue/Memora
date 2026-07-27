@@ -22,7 +22,7 @@ def test_memory_item_defaults_are_safe():
         id="mem_1",
         name="user-language-preference",
         description="User prefers Chinese.",
-        type="user",
+        type="preference",
         content="用户偏好使用中文。",
     )
 
@@ -88,15 +88,15 @@ def test_validate_memory_item_rejects_invalid_type():
 
 
 def test_validate_memory_item_rejects_invalid_status():
-    item = MemoryItem(id="mem_1", name="language", description="desc", type="user", content="content", status="bad")
+    item = MemoryItem(id="mem_1", name="language", description="desc", type="preference", content="content", status="bad")
 
     with pytest.raises(MemoryValidationError, match="memory status"):
         validate_memory_item(item)
 
 
 def test_validate_memory_item_rejects_invalid_weight_and_confidence():
-    overweight = MemoryItem(id="mem_1", name="language", description="desc", type="user", content="content", weight=11)
-    overconfident = MemoryItem(id="mem_2", name="style", description="desc", type="user", content="content", confidence=1.1)
+    overweight = MemoryItem(id="mem_1", name="language", description="desc", type="preference", content="content", weight=11)
+    overconfident = MemoryItem(id="mem_2", name="style", description="desc", type="preference", content="content", confidence=1.1)
 
     with pytest.raises(MemoryValidationError, match="weight"):
         validate_memory_item(overweight)
@@ -105,7 +105,7 @@ def test_validate_memory_item_rejects_invalid_weight_and_confidence():
 
 
 def test_validate_memory_candidate_rejects_invalid_action():
-    candidate = MemoryCandidate(action="bad", name="language", description="desc", type="user", content="content")
+    candidate = MemoryCandidate(action="bad", name="language", description="desc", type="preference", content="content")
 
     with pytest.raises(MemoryValidationError, match="candidate action"):
         validate_memory_candidate(candidate)

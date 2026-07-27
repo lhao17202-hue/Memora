@@ -43,7 +43,7 @@ def test_sqlite_search_candidates_match_fields_and_filters(tmp_path: Path):
             id="mem_language",
             name="language",
             description="用户偏好中文。",
-            type="user",
+            type="preference",
             content="User wants pytest examples.",
             tags=["preference"],
         )
@@ -60,7 +60,7 @@ def test_sqlite_search_candidates_match_fields_and_filters(tmp_path: Path):
 
     by_content = store.search_candidates(MemoryQuery(query="pytest", top_k=8))
     by_tag = store.search_candidates(MemoryQuery(query="preference", tags=["preference"], top_k=8))
-    by_type = store.search_candidates(MemoryQuery(query="pytest", memory_types=["user"], top_k=8))
+    by_type = store.search_candidates(MemoryQuery(query="pytest", memory_types=["preference"], top_k=8))
 
     assert {item.id for item in by_content} == {language.id, other.id}
     assert [item.id for item in by_tag] == [language.id]
@@ -69,7 +69,7 @@ def test_sqlite_search_candidates_match_fields_and_filters(tmp_path: Path):
 
 def test_sqlite_rebuild_index_repairs_missing_fts_rows(tmp_path: Path):
     store = sqlite_store(tmp_path)
-    store.save_memory(MemoryItem(id="mem_language", name="language", description="desc", type="user", content="pytest content"))
+    store.save_memory(MemoryItem(id="mem_language", name="language", description="desc", type="preference", content="pytest content"))
 
     with sqlite3.connect(store.db_path) as connection:
         connection.execute("DELETE FROM memory_fts")
@@ -92,7 +92,7 @@ def test_sqlite_store_keeps_same_name_in_different_user_scopes(tmp_path: Path):
             id="mem_alice",
             name="language",
             description="Alice language.",
-            type="user",
+            type="preference",
             content="Alice prefers Chinese.",
             user_id="alice",
         )
@@ -102,7 +102,7 @@ def test_sqlite_store_keeps_same_name_in_different_user_scopes(tmp_path: Path):
             id="mem_bob",
             name="language",
             description="Bob language.",
-            type="user",
+            type="preference",
             content="Bob prefers English.",
             user_id="bob",
         )
@@ -121,7 +121,7 @@ def test_sqlite_store_replaces_same_name_only_within_same_scope(tmp_path: Path):
             id="mem_original",
             name="language",
             description="Original.",
-            type="user",
+            type="preference",
             content="Original content.",
             user_id="alice",
         )
@@ -131,7 +131,7 @@ def test_sqlite_store_replaces_same_name_only_within_same_scope(tmp_path: Path):
             id="mem_replacement",
             name="language",
             description="Replacement.",
-            type="user",
+            type="preference",
             content="Replacement content.",
             user_id="alice",
         )
@@ -146,7 +146,7 @@ def test_sqlite_store_replaces_same_name_only_within_same_scope(tmp_path: Path):
 
 def test_sqlite_store_closes_connections_after_operations(tmp_path: Path):
     store = sqlite_store(tmp_path)
-    store.save_memory(MemoryItem(id="mem_language", name="language", description="desc", type="user", content="pytest content"))
+    store.save_memory(MemoryItem(id="mem_language", name="language", description="desc", type="preference", content="pytest content"))
     store.list_memories()
     store.get_memory("language")
     store.search_candidates(MemoryQuery(query="pytest", top_k=8))
@@ -161,7 +161,7 @@ def test_sqlite_store_closes_connections_after_operations(tmp_path: Path):
 def test_manager_sqlite_backend_merges_fts_with_chinese_fallback_for_mixed_query(tmp_path: Path):
     manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", memory_backend="sqlite"))
     manager.init_storage()
-    manager.save_memory("user", "用户偏好中文回答。", "用户偏好中文。", name="language")
+    manager.save_memory("preference", "用户偏好中文回答。", "用户偏好中文。", name="language")
     manager.save_memory("project", "pytest docs", "pytest docs", name="pytest-docs")
 
     results = manager.retrieve_memory("中文 pytest", include_archived=False)
@@ -172,7 +172,7 @@ def test_manager_sqlite_backend_merges_fts_with_chinese_fallback_for_mixed_query
 def test_manager_sqlite_backend_preserves_chinese_fallback(tmp_path: Path):
     manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", memory_backend="sqlite"))
     manager.init_storage()
-    manager.save_memory("user", "用户偏好中文回答。", "用户偏好中文。", name="language")
+    manager.save_memory("preference", "用户偏好中文回答。", "用户偏好中文。", name="language")
 
     for query in ["中文", "偏好", "回答"]:
         results = manager.retrieve_memory(query)
