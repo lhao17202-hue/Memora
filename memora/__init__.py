@@ -3,7 +3,7 @@
 from .config import MemoryConfig
 from .extraction import ExtractionArtifact, ExtractedMemory, LLMClient, LLMMemoryExtractor, MemoryExtractor, parse_extraction_json
 from .manager import MemoryManager
-from .schema import MemoryCandidate, MemoryItem, MemoryQuery, MemorySearchResult, MemoryWriteResult, SessionMessage, WorkingMemoryState
+from .schema import MemoryCandidate, MemoryItem, MemoryQuery, MemoryRelation, MemorySearchResult, MemoryWriteResult, SessionMessage, WorkingMemoryState
 
 __version__ = "0.1.0"
 
@@ -19,6 +19,7 @@ __all__ = [
     "MemoryItem",
     "MemoryCandidate",
     "MemoryWriteResult",
+    "MemoryRelation",
     "MemoryQuery",
     "MemorySearchResult",
     "SessionMessage",

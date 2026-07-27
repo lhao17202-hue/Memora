@@ -13,6 +13,7 @@ MemoryStatus = Literal["active", "archived", "deleted"]
 
 CandidateAction = Literal["create", "update", "archive", "delete", "reject", "ask_user"]
 SuggestedAction = Literal["create", "update"]
+RelationKind = Literal["none", "duplicate", "merge", "conflict"]
 
 VALID_MEMORY_STATUSES = ("active", "archived", "deleted")
 
@@ -79,6 +80,15 @@ class MemoryQuery:
     max_tokens: int = 2000
     include_archived: bool = False
     include_knowledge: bool = True
+
+
+@dataclass
+class MemoryRelation:
+    kind: RelationKind = "none"
+    target_memory_id: str | None = None
+    target_updated_at: datetime | None = None
+    similarity_score: float = 0.0
+    reason: str = ""
 
 
 @dataclass

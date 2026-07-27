@@ -4,11 +4,24 @@ from pathlib import Path
 from memora.config import MemoryConfig
 from memora.errors import MemoryNotFoundError, MemoryPolicyError, MemoryValidationError
 from memora.manager import MemoryManager
-from memora.schema import MemoryCandidate, SessionMessage
+from memora.schema import MemoryCandidate, MemoryRelation, SessionMessage
 
 
 def manager_for(tmp_path: Path) -> MemoryManager:
     return MemoryManager(MemoryConfig(root_dir=str(tmp_path / ".memora")))
+
+
+class FixedRelationResolver:
+    def __init__(self, relation: MemoryRelation):
+        self.relation = relation
+
+    def resolve(self, candidate, existing):
+        return self.relation
+
+
+class ExplodingRelationResolver:
+    def resolve(self, candidate, existing):
+        raise AssertionError("relation resolver should not be called")
 
 
 def test_memory_search_result_rag_score_defaults():
@@ -395,7 +408,7 @@ def test_same_memory_name_is_isolated_across_explicit_projects(tmp_path: Path):
     assert [result.memory.id for result in project_b_results] == [project_b.id]
 
 
-def test_conflict_confirmation_disabled_creates_new_memory(tmp_path: Path):
+def test_different_name_language_preference_creates_without_semantic_relation(tmp_path: Path):
     manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", require_confirmation_for_conflicts=False))
     manager.init_storage()
     existing = manager.save_memory("preference", "用户偏好英文回答。", "用户偏好英文。", name="language-en")
@@ -435,7 +448,26 @@ def test_remember_candidate_rejects_secret_without_raising_policy_error(tmp_path
     assert manager.memory_store.get_memory("secret") is None
 
 
-def test_remember_candidate_reports_conflict_without_writing(tmp_path: Path):
+def test_secret_candidate_does_not_call_semantic_relation_resolver(tmp_path: Path):
+    manager = manager_for(tmp_path)
+    manager.init_storage()
+    manager.relation_resolver = ExplodingRelationResolver()
+
+    result = manager.remember_candidate(
+        MemoryCandidate(
+            action="create",
+            type="preference",
+            name="secret",
+            description="secret",
+            content="api_key = sk-abcdef123456",
+        )
+    )
+
+    assert result.action == "rejected"
+    assert result.reason == "contains_secret"
+
+
+def test_remember_candidate_does_not_report_conflict_without_semantic_relation(tmp_path: Path):
     manager = manager_for(tmp_path)
     manager.init_storage()
     existing = manager.save_memory("preference", "用户偏好英文回答。", "用户偏好英文。", name="language-en")
@@ -449,13 +481,88 @@ def test_remember_candidate_reports_conflict_without_writing(tmp_path: Path):
 
     result = manager.remember_candidate(candidate)
 
+    assert result.action == "created"
+    assert result.memory is not None
+    assert result.memory.id != existing.id
+    assert result.reason == "accepted"
+    assert manager.memory_store.get_memory("language-zh") is not None
+
+
+def test_semantic_merge_updates_existing_memory(tmp_path: Path):
+    manager = manager_for(tmp_path)
+    manager.init_storage()
+    existing = manager.save_memory("preference", "Prefer concise responses.", "response style", name="response-style")
+    manager.relation_resolver = FixedRelationResolver(
+        MemoryRelation(kind="merge", target_memory_id=existing.id, target_updated_at=existing.updated_at, similarity_score=0.92)
+    )
+    candidate = MemoryCandidate(
+        action="create",
+        type="preference",
+        name="style-summary",
+        description="Prefer concise responses with short summaries.",
+        content="Prefer concise responses with short summaries.",
+    )
+
+    result = manager.remember_candidate(candidate)
+
+    assert result.action == "updated"
+    assert result.reason == "semantic_merge"
+    assert result.memory is not None
+    assert result.memory.id == existing.id
+    assert result.memory.content == "Prefer concise responses with short summaries."
+    assert manager.memory_store.get_memory("style-summary") is None
+
+
+def test_semantic_conflict_requires_confirmation_without_writing(tmp_path: Path):
+    manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", allow_high_confidence_conflict_replace=False))
+    manager.init_storage()
+    existing = manager.save_memory("preference", "Prefer English responses.", "language", name="language-en")
+    manager.relation_resolver = FixedRelationResolver(
+        MemoryRelation(kind="conflict", target_memory_id=existing.id, target_updated_at=existing.updated_at, similarity_score=0.95)
+    )
+    candidate = MemoryCandidate(
+        action="create",
+        type="preference",
+        name="language-zh",
+        description="Prefer Chinese responses.",
+        content="Prefer Chinese responses.",
+        confidence=0.70,
+    )
+
+    result = manager.remember_candidate(candidate)
+
     assert result.action == "requires_confirmation"
+    assert result.reason == "semantic_conflict_requires_confirmation"
     assert result.memory is None
-    assert result.reason == "conflict_requires_confirmation"
     assert result.target_memory_id == existing.id
     assert result.candidate is not None
     assert result.candidate.suggested_action == "update"
-    assert manager.memory_store.get_memory("language-zh") is None
+    assert manager.memory_store.get_memory(existing.id).content == "Prefer English responses."
+
+
+def test_high_confidence_semantic_conflict_replaces_existing_memory(tmp_path: Path):
+    manager = manager_for(tmp_path)
+    manager.init_storage()
+    existing = manager.save_memory("preference", "Prefer English responses.", "language", name="language-en")
+    manager.relation_resolver = FixedRelationResolver(
+        MemoryRelation(kind="conflict", target_memory_id=existing.id, target_updated_at=existing.updated_at, similarity_score=0.95)
+    )
+    candidate = MemoryCandidate(
+        action="create",
+        type="preference",
+        name="language-zh",
+        description="Prefer Chinese responses.",
+        content="Prefer Chinese responses.",
+        confidence=0.95,
+    )
+
+    result = manager.remember_candidate(candidate)
+
+    assert result.action == "updated"
+    assert result.reason == "semantic_conflict_high_confidence_replace"
+    assert result.memory is not None
+    assert result.memory.id == existing.id
+    assert result.memory.content == "Prefer Chinese responses."
 
 
 def test_evaluate_memory_candidate_returns_enriched_confirmation(tmp_path: Path):
@@ -556,17 +663,21 @@ def test_confirm_memory_candidate_updates_duplicate_target(tmp_path: Path):
     assert len(manager.memory_store.list_memories(include_archived=True)) == 1
 
 
-def test_confirm_memory_candidate_updates_conflict_target(tmp_path: Path):
-    manager = manager_for(tmp_path)
+def test_confirm_memory_candidate_updates_semantic_conflict_target(tmp_path: Path):
+    manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", allow_high_confidence_conflict_replace=False))
     manager.init_storage()
-    existing = manager.save_memory("preference", "用户偏好英文回答。", "用户偏好英文。", name="language-en")
+    existing = manager.save_memory("preference", "Prefer English responses.", "language", name="language-en")
+    manager.relation_resolver = FixedRelationResolver(
+        MemoryRelation(kind="conflict", target_memory_id=existing.id, target_updated_at=existing.updated_at, similarity_score=0.95)
+    )
     pending = manager.remember_candidate(
         MemoryCandidate(
             action="create",
             type="preference",
             name="language-zh",
-            description="用户偏好中文。",
-            content="用户偏好中文回答。",
+            description="Prefer Chinese responses.",
+            content="Prefer Chinese responses.",
+            confidence=0.70,
         )
     )
 
@@ -575,7 +686,7 @@ def test_confirm_memory_candidate_updates_conflict_target(tmp_path: Path):
     assert confirmed.action == "updated"
     assert confirmed.memory is not None
     assert confirmed.memory.id == existing.id
-    assert confirmed.memory.content == "用户偏好中文回答。"
+    assert confirmed.memory.content == "Prefer Chinese responses."
 
 
 def test_confirm_memory_candidate_detects_stale_create_candidate_after_duplicate_appears(tmp_path: Path):
@@ -852,3 +963,31 @@ def test_confirm_memory_candidate_syncs_rag_index(tmp_path: Path):
     assert len(results) == 1
     assert results[0].memory.id == confirmed.memory.id
     assert results[0].semantic_score > 0
+
+
+def test_semantic_update_syncs_rag_index(tmp_path: Path):
+    manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", memory_backend="sqlite", rag_enabled=True))
+    manager.init_storage()
+    existing = manager.save_memory("preference", "old semantic sync marker", "sync", name="sync-old")
+    manager.relation_resolver = FixedRelationResolver(
+        MemoryRelation(kind="merge", target_memory_id=existing.id, target_updated_at=existing.updated_at, similarity_score=0.92)
+    )
+
+    result = manager.remember_candidate(
+        MemoryCandidate(
+            action="create",
+            type="preference",
+            name="sync-new",
+            description="new sync",
+            content="new semantic sync marker",
+        )
+    )
+    verify = manager.verify_memories()
+    results = manager.retrieve_memory("new semantic sync marker")
+
+    assert result.action == "updated"
+    assert result.memory is not None
+    assert result.memory.id == existing.id
+    assert verify["vector_ok"] is True
+    assert verify["embedding_mismatches"] == []
+    assert [search_result.memory.id for search_result in results] == [existing.id]

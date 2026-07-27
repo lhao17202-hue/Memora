@@ -288,9 +288,12 @@ Memora's policy-related configuration fields are active in the manager/runtime w
 - explicit write weights are preserved.
 - `allow_auto_save_user_preferences` and `allow_auto_save_project_facts` control whether automatic `runtime_extraction`, `session_extraction`, and `conversation` candidates can be written without confirmation.
 - disabled auto-save returns `requires_confirmation`, not `rejected`.
-- `require_confirmation_for_conflicts` controls whether simple deterministic conflicts require confirmation.
+- `semantic_write_relations_enabled` enables embedding-backed write-time duplicate, merge, and conflict relation detection. It is disabled by default.
+- `semantic_relation_threshold`, `semantic_merge_threshold`, and `semantic_conflict_threshold` tune the similarity gates used before semantic write relations can affect policy decisions.
+- `require_confirmation_for_conflicts` controls whether detected semantic conflicts require confirmation when high-confidence replacement is not allowed.
+- `allow_high_confidence_conflict_replace` and `high_confidence_conflict_threshold` allow high-confidence semantic conflicts to update the target memory automatically.
 
-Manual writes remain allowed unless rejected by safety, transient-state, noisy-output, or conflict policy.
+Manual writes remain allowed unless rejected by safety, transient-state, noisy-output, or semantic conflict policy.
 
 ## Agent runtime demo
 
@@ -304,4 +307,4 @@ The demo uses `MemoryRuntime` with a local fake assistant response. It does not 
 
 ## MVP boundaries
 
-This version includes a deterministic local RAG v1 path: hash embeddings, a SQLite-backed vector index, hybrid vector + keyword retrieval, and RAG verify/rebuild diagnostics. It does not include LLM-based extraction, external embedding providers, hosted vector databases, model rerankers, web UI, or hosted multi-tenant service.
+This version includes a deterministic local RAG v1 path, an LLM extraction contract, embedding-backed write-time relation detection, hash embeddings, a SQLite-backed vector index, hybrid vector + keyword retrieval, and RAG verify/rebuild diagnostics. It does not include bundled external LLM clients, external embedding providers, hosted vector databases, model rerankers, web UI, or hosted multi-tenant service.

@@ -1,6 +1,7 @@
 from memora.config import MemoryConfig
+from memora.errors import MemoryValidationError
 from memora.policy import MemoryPolicy
-from memora.schema import MemoryCandidate, MemoryItem
+from memora.schema import MemoryCandidate, MemoryItem, MemoryRelation
 
 
 def candidate(content: str, name: str = "memory") -> MemoryCandidate:
@@ -108,6 +109,20 @@ def test_content_under_configured_length_is_not_noisy_by_length():
     assert result.suggested_action == "create"
 
 
+def test_policy_rejects_invalid_high_confidence_conflict_config():
+    for config in (
+        MemoryConfig(high_confidence_conflict_threshold=True),
+        MemoryConfig(high_confidence_conflict_threshold=1.1),
+        MemoryConfig(allow_high_confidence_conflict_replace="yes"),
+    ):
+        try:
+            MemoryPolicy(config)
+        except MemoryValidationError as exc:
+            assert "confidence_conflict" in str(exc) or "allow_high_confidence_conflict_replace" in str(exc)
+        else:
+            raise AssertionError("expected MemoryValidationError")
+
+
 def test_policy_evaluate_is_decision_only_and_does_not_resolve_weight():
     item = candidate("durable")
 
@@ -171,7 +186,7 @@ def test_same_name_updates_existing_memory():
     assert result.reason == "duplicate_or_same_key"
 
 
-def test_conflict_requires_confirmation_for_same_type_different_content():
+def test_different_name_language_preference_does_not_conflict_without_semantic_relation():
     existing = [
         MemoryItem(
             id="mem_1",
@@ -184,14 +199,14 @@ def test_conflict_requires_confirmation_for_same_type_different_content():
 
     result = MemoryPolicy().evaluate(candidate("用户偏好中文回答。", name="user-language-zh"), existing)
 
-    assert result.action == "ask_user"
-    assert result.target_memory_id == "mem_1"
-    assert result.suggested_action == "update"
-    assert result.reason == "conflict_requires_confirmation"
+    assert result.action == "create"
+    assert result.target_memory_id is None
+    assert result.suggested_action == "create"
+    assert result.reason == "accepted"
 
 
-def test_conflict_confirmation_can_be_disabled():
-    policy = MemoryPolicy(MemoryConfig(require_confirmation_for_conflicts=False))
+def test_semantic_conflict_requires_confirmation():
+    policy = MemoryPolicy(MemoryConfig(allow_high_confidence_conflict_replace=False))
     existing = [
         MemoryItem(
             id="mem_1",
@@ -202,8 +217,58 @@ def test_conflict_confirmation_can_be_disabled():
         )
     ]
 
-    result = policy.evaluate(candidate("用户偏好中文回答。", name="user-language-zh"), existing)
+    result = policy.evaluate(
+        candidate("用户偏好中文回答。", name="user-language-zh"),
+        existing,
+        relation=MemoryRelation(kind="conflict", target_memory_id="mem_1", similarity_score=0.95),
+    )
+
+    assert result.action == "ask_user"
+    assert result.reason == "semantic_conflict_requires_confirmation"
+    assert result.target_memory_id == "mem_1"
+    assert result.suggested_action == "update"
+
+
+def test_high_confidence_semantic_conflict_can_replace():
+    existing = [MemoryItem(id="mem_1", name="language", description="old", type="preference", content="Prefer English.")]
+    item = candidate("Prefer Chinese.", name="language-zh")
+    item.confidence = 0.95
+
+    result = MemoryPolicy().evaluate(
+        item,
+        existing,
+        relation=MemoryRelation(kind="conflict", target_memory_id="mem_1", similarity_score=0.95),
+    )
+
+    assert result.action == "update"
+    assert result.reason == "semantic_conflict_high_confidence_replace"
+    assert result.target_memory_id == "mem_1"
+
+
+def test_semantic_conflict_confirmation_can_be_disabled():
+    policy = MemoryPolicy(MemoryConfig(require_confirmation_for_conflicts=False, allow_high_confidence_conflict_replace=False))
+    existing = [MemoryItem(id="mem_1", name="language", description="old", type="preference", content="Prefer English.")]
+
+    result = policy.evaluate(
+        candidate("Prefer Chinese.", name="language-zh"),
+        existing,
+        relation=MemoryRelation(kind="conflict", target_memory_id="mem_1", similarity_score=0.95),
+    )
 
     assert result.action == "create"
     assert result.reason == "accepted"
     assert result.target_memory_id is None
+
+
+def test_semantic_merge_updates_existing_memory():
+    existing = [MemoryItem(id="mem_1", name="style", description="old", type="preference", content="Prefer concise responses.")]
+
+    result = MemoryPolicy().evaluate(
+        candidate("Prefer concise responses with short summaries.", name="response-style"),
+        existing,
+        relation=MemoryRelation(kind="merge", target_memory_id="mem_1", similarity_score=0.90),
+    )
+
+    assert result.action == "update"
+    assert result.reason == "semantic_merge"
+    assert result.target_memory_id == "mem_1"

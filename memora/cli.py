@@ -30,6 +30,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--embedding-provider", default="hash", choices=EMBEDDING_PROVIDER_CHOICES, help="Embedding provider for RAG.")
     parser.add_argument("--vector-store", default="sqlite", choices=VECTOR_STORE_CHOICES, help="Vector store for RAG.")
     parser.add_argument("--reranker", default="deterministic", choices=RERANKER_CHOICES, help="Reranker for RAG.")
+    parser.add_argument("--semantic-write-relations", action="store_true", help="Use embeddings to detect write-time duplicate, merge, and conflict relations.")
+    parser.add_argument("--semantic-relation-threshold", type=float, default=0.78, help="Minimum similarity for write-time semantic relation detection.")
+    parser.add_argument("--semantic-merge-threshold", type=float, default=0.82, help="Minimum similarity for write-time semantic merge/update decisions.")
+    parser.add_argument("--semantic-conflict-threshold", type=float, default=0.90, help="Minimum similarity before conflict evidence can affect write decisions.")
+    parser.add_argument("--no-high-confidence-conflict-replace", action="store_true", help="Disable automatic replacement for high-confidence semantic conflicts.")
     subparsers = parser.add_subparsers(dest="command")
 
     subparsers.add_parser("init", help="Initialize a Memora runtime directory.")
@@ -132,6 +137,11 @@ def main(argv: list[str] | None = None) -> int:
                 embedding_provider=args.embedding_provider,
                 vector_store=args.vector_store,
                 reranker=args.reranker,
+                semantic_write_relations_enabled=args.semantic_write_relations,
+                semantic_relation_threshold=args.semantic_relation_threshold,
+                semantic_merge_threshold=args.semantic_merge_threshold,
+                semantic_conflict_threshold=args.semantic_conflict_threshold,
+                allow_high_confidence_conflict_replace=not args.no_high_confidence_conflict_replace,
             )
         )
         return _run_command(args, manager, parser)

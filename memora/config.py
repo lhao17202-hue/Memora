@@ -24,6 +24,12 @@ class MemoryConfig:
     vector_candidate_limit: int = 50
     keyword_candidate_limit: int = 50
     min_semantic_score: float = 0.25
+    semantic_write_relations_enabled: bool = False
+    semantic_relation_threshold: float = 0.78
+    semantic_merge_threshold: float = 0.82
+    semantic_conflict_threshold: float = 0.90
+    allow_high_confidence_conflict_replace: bool = True
+    high_confidence_conflict_threshold: float = 0.90
     reranker: str = "deterministic"
     rerank_candidate_limit: int = 100
     max_retrieved_memories: int = 8

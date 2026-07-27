@@ -15,6 +15,7 @@ from .lifecycle import LifecycleManager
 from .policy import MemoryPolicy
 from .portable import backup_memories, export_memories, import_memories, rebuild_index, verify_memories
 from .rag import RagIndex, RagRetriever, build_embedding_provider, build_reranker, build_vector_store
+from .relations import SemanticMemoryRelationResolver
 from .retriever import MemoryRetriever
 from .schema import (
     MemoryCandidate,
@@ -51,9 +52,14 @@ class MemoryManager:
         self.lifecycle = LifecycleManager(self.config)
         self.rag_index: RagIndex | None = None
         self.rag_retriever: RagRetriever | None = None
+        self.relation_resolver: SemanticMemoryRelationResolver | None = None
         self._rag_sync_errors: list[dict[str, str]] = []
-        if self.config.rag_enabled:
+        embedder = None
+        if self.config.rag_enabled or self.config.semantic_write_relations_enabled:
             embedder = build_embedding_provider(self.config)
+        if self.config.semantic_write_relations_enabled and embedder is not None:
+            self.relation_resolver = SemanticMemoryRelationResolver(embedder, self.config)
+        if self.config.rag_enabled and embedder is not None:
             vector_store = build_vector_store(self.config)
             reranker = build_reranker(self.config)
             self.rag_index = RagIndex(self.memory_store, embedder, vector_store)
@@ -129,6 +135,13 @@ class MemoryManager:
             candidate.weight = self._default_weight_for_type(candidate.type)
         return candidate
 
+    def _evaluate_candidate_decision(self, candidate: MemoryCandidate) -> MemoryCandidate:
+        scoped = self._scoped_memories(candidate.user_id, candidate.project_id, candidate.workspace_id, include_archived=False)
+        relation = None
+        if self.relation_resolver is not None and self.policy.rejection_reason(candidate) is None:
+            relation = self.relation_resolver.resolve(candidate, scoped)
+        return self.policy.evaluate(candidate, scoped, relation=relation)
+
     def _new_memory_from_candidate(self, decision: MemoryCandidate) -> MemoryItem:
         if decision.weight is None:
             decision.weight = self._default_weight_for_type(decision.type)
@@ -166,19 +179,13 @@ class MemoryManager:
     def evaluate_memory_candidate(self, candidate: MemoryCandidate) -> MemoryWriteResult:
         candidate = self._resolve_candidate_defaults(candidate)
         validate_memory_candidate(candidate)
-        decision = self.policy.evaluate(
-            candidate,
-            self._scoped_memories(candidate.user_id, candidate.project_id, candidate.workspace_id, include_archived=False),
-        )
+        decision = self._evaluate_candidate_decision(candidate)
         return self._write_result_from_decision(decision)
 
     def remember_candidate(self, candidate: MemoryCandidate) -> MemoryWriteResult:
         candidate = self._resolve_candidate_defaults(candidate)
         validate_memory_candidate(candidate)
-        decision = self.policy.evaluate(
-            candidate,
-            self._scoped_memories(candidate.user_id, candidate.project_id, candidate.workspace_id, include_archived=False),
-        )
+        decision = self._evaluate_candidate_decision(candidate)
         if decision.action == "create":
             item = self._new_memory_from_candidate(decision)
             saved = self.memory_store.save_memory(item)
@@ -215,10 +222,7 @@ class MemoryManager:
         if confirmed_action == "update" and self.memory_store.get_memory(target_memory_id or candidate.target_memory_id) is None:
             raise MemoryNotFoundError(f"memory not found: {target_memory_id or candidate.target_memory_id}")
         fresh = replace(candidate, action="create", target_memory_id=None, target_updated_at=None, suggested_action=None, reason="")
-        fresh = self.policy.evaluate(
-            fresh,
-            self._scoped_memories(candidate.user_id, candidate.project_id, candidate.workspace_id, include_archived=False),
-        )
+        fresh = self._evaluate_candidate_decision(fresh)
         if fresh.action == "reject":
             raise MemoryPolicyError(f"memory rejected: {fresh.reason}")
         if fresh.action == "ask_user":
@@ -290,10 +294,7 @@ class MemoryManager:
         )
         candidate = self._resolve_candidate_defaults(candidate)
         validate_memory_candidate(candidate)
-        decision = self.policy.evaluate(
-            candidate,
-            self._scoped_memories(candidate.user_id, candidate.project_id, candidate.workspace_id, include_archived=False),
-        )
+        decision = self._evaluate_candidate_decision(candidate)
         if decision.action == "reject":
             raise MemoryPolicyError(f"memory rejected: {decision.reason}")
         if decision.action == "ask_user":
