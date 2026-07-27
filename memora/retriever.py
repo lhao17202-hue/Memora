@@ -10,11 +10,11 @@ from .schema import MemoryItem, MemoryQuery, MemorySearchResult
 
 HALF_LIFE_DAYS = {
     "preference": 365,
-    "project": 90,
+    "project": 180,
     "episodic": 45,
     "reflective": 180,
     "tool": 120,
-    "knowledge": 180,
+    "knowledge": 365,
     "general": 90,
 }
 

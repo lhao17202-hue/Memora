@@ -76,6 +76,13 @@ def test_memory_config_defaults():
     assert config.fts_candidate_limit == 100
     assert config.max_retrieved_memories == 8
     assert config.max_memory_prompt_tokens == 2000
+    assert config.default_preference_weight == 9
+    assert config.default_project_weight == 8
+    assert config.default_episodic_weight == 5
+    assert config.default_reflective_weight == 7
+    assert config.default_tool_weight == 6
+    assert config.default_knowledge_weight == 6
+    assert config.default_general_weight == 4
     assert config.archive_cold_days == 180
     assert config.require_confirmation_for_conflicts is True
 

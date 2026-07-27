@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from memora.retriever import MemoryRetriever
+from memora.retriever import HALF_LIFE_DAYS, MemoryRetriever
 from memora.schema import MemoryItem, MemoryQuery
 
 
@@ -52,6 +52,18 @@ def test_type_filter_excludes_other_types():
     results = MemoryRetriever().retrieve([memory], MemoryQuery(query="pytest", memory_types=["preference"]))
 
     assert results == []
+
+
+def test_memory_type_half_life_defaults_match_taxonomy():
+    assert HALF_LIFE_DAYS == {
+        "preference": 365,
+        "project": 180,
+        "episodic": 45,
+        "reflective": 180,
+        "tool": 120,
+        "knowledge": 365,
+        "general": 90,
+    }
 
 
 def test_recency_score_decays_old_memory():

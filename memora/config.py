@@ -28,14 +28,12 @@ class MemoryConfig:
     max_memory_prompt_tokens: int = 2000
     max_memory_content_chars: int = 4000
     default_preference_weight: int = 9
-    default_project_weight: int = 7
+    default_project_weight: int = 8
     default_episodic_weight: int = 5
     default_reflective_weight: int = 7
     default_tool_weight: int = 6
     default_knowledge_weight: int = 6
     default_general_weight: int = 4
-    episodic_expire_days: int = 90
-    tool_expire_days: int = 180
     project_fact_review_days: int = 180
     archive_cold_days: int = 180
     consolidate_memory_count: int = 50
