@@ -5,6 +5,7 @@ from __future__ import annotations
 from .config import MemoryConfig
 from .extraction import ExtractionArtifact, MemoryExtractor
 from .manager import MemoryManager
+from .relations import MemoryRelationJudge
 from .schema import MemoryCandidate, MemoryItem, MemorySearchResult, MemoryWriteResult, SessionMessage
 from .taxonomy import ON_DEMAND_CONTEXT_TYPES
 
@@ -15,10 +16,13 @@ class MemoryRuntime:
         manager: MemoryManager | None = None,
         config: MemoryConfig | None = None,
         extractor: MemoryExtractor | None = None,
+        relation_judge: MemoryRelationJudge | None = None,
     ):
         if manager is not None and config is not None:
             raise ValueError("manager and config cannot both be provided")
-        self.manager = manager or MemoryManager(config)
+        if manager is not None and relation_judge is not None:
+            raise ValueError("manager and relation_judge cannot both be provided")
+        self.manager = manager or MemoryManager(config, relation_judge=relation_judge)
         self.extractor = extractor
 
     def init_storage(self) -> None:

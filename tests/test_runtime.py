@@ -5,6 +5,7 @@ import pytest
 from memora.config import MemoryConfig
 from memora.extraction import LLMMemoryExtractor, parse_extraction_json
 from memora.manager import MemoryManager
+from memora.relations import LLMMemoryRelationJudge
 from memora.runtime import MemoryRuntime
 from memora.schema import MemoryCandidate
 
@@ -140,6 +141,14 @@ def test_constructor_rejects_manager_and_config_together(tmp_path: Path):
 
     with pytest.raises(ValueError, match="manager and config cannot both be provided"):
         MemoryRuntime(manager=manager, config=MemoryConfig(root_dir=tmp_path / "other"))
+
+
+def test_constructor_rejects_manager_and_relation_judge_together(tmp_path: Path):
+    manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora"))
+    judge = LLMMemoryRelationJudge(FakeLLMClient('{"kind":"none","confidence":1,"reason":"unused"}'))
+
+    with pytest.raises(ValueError, match="manager and relation_judge cannot both be provided"):
+        MemoryRuntime(manager=manager, relation_judge=judge)
 
 
 def test_remember_extracted_creates_memory(tmp_path: Path):
@@ -319,6 +328,52 @@ def test_extract_and_remember_uses_injected_llm_extractor(tmp_path: Path):
     assert artifact.ok is True
     assert [result.action for result in results] == ["created", "created"]
     assert {memory.type for memory in runtime.manager.list_memories()} == {"preference", "tool"}
+
+
+def test_runtime_llm_relation_judge_merges_and_keeps_rag_index_current(tmp_path: Path):
+    relation_client = FakeLLMClient(
+        '{"kind":"merge","confidence":0.91,"reason":"Candidate refines the response style.",'
+        '"merged":{"name":"response-style","description":"Response style preference.",'
+        '"content":"Prefer concise answers with short summaries.","tags":["style","summary"]}}'
+    )
+    runtime = MemoryRuntime(
+        config=MemoryConfig(
+            root_dir=tmp_path / ".memora",
+            memory_backend="sqlite",
+            rag_enabled=True,
+            llm_relation_judge_enabled=True,
+            semantic_relation_threshold=0.10,
+            semantic_merge_threshold=0.10,
+            semantic_conflict_threshold=0.95,
+        ),
+        relation_judge=LLMMemoryRelationJudge(relation_client),
+    )
+    runtime.init_storage()
+    created = runtime.remember_extracted(
+        memory_type="preference",
+        name="response-style",
+        description="Response style preference.",
+        content="Prefer concise answers.",
+    )
+
+    updated = runtime.remember_extracted(
+        memory_type="preference",
+        name="short-summary-style",
+        description="Short summary preference.",
+        content="Prefer concise answers with short summaries.",
+    )
+    results = runtime.retrieve_context("short summaries", memory_types=["preference"])
+    verify = runtime.manager.verify_memories()
+
+    assert created.action == "created"
+    assert updated.action == "updated"
+    assert updated.reason == "llm_semantic_merge"
+    assert updated.memory is not None
+    assert updated.memory.content == "Prefer concise answers with short summaries."
+    assert updated.memory.tags == ["style", "summary"]
+    assert [result.memory.id for result in results] == [updated.memory.id]
+    assert verify["vector_ok"] is True
+    assert verify["embedding_mismatches"] == []
 
 
 def test_remember_extraction_artifact_returns_confirmation_for_low_confidence(tmp_path: Path):

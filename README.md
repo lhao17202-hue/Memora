@@ -247,6 +247,47 @@ print(artifact.errors, [result.action for result in results])
 
 If no extractor is configured, `runtime.extract_memories(...)` returns a `memory_extractor_not_configured` artifact and writes nothing.
 
+### Write-time relation flow
+
+Memora separates extraction, relation recall, relation judgment, and storage:
+
+1. The external agent or extractor produces a structured `MemoryCandidate`.
+2. Memora rejects unsafe, transient, or noisy candidates before relation handling.
+3. If semantic write relations or LLM relation judging is enabled, Memora uses the configured embedding provider to find one likely existing target in the same type and scope.
+4. If an LLM relation judge is injected, Memora asks it to classify only that embedding hit as `none`, `duplicate`, `merge`, or `conflict`.
+5. Policy decides whether to create, update, reject, or require confirmation.
+6. The selected local backend writes the `MemoryItem`; when RAG is enabled, the vector index is synced from the updated local item.
+
+The local memory backend remains the source of truth. RAG is a retrieval index, not a separate authoritative memory store. Updates, conflict replacements, and LLM merges write through the same local update path and then refresh the vector index.
+
+`LLMMemoryRelationJudge` is intentionally provider-neutral. Any external client can be used if it implements `complete(messages) -> str` and returns JSON matching the relation decision schema:
+
+```python
+from memora.config import MemoryConfig
+from memora.relations import LLMMemoryRelationJudge
+from memora.runtime import MemoryRuntime
+
+
+class MyRelationClient:
+    def complete(self, messages):
+        # Call your provider here and return JSON text only.
+        return (
+            '{"kind":"merge","confidence":0.9,"reason":"Refines existing memory.",'
+            '"merged":{"name":"response-style","description":"Response style.",'
+            '"content":"Prefer concise answers with short summaries.","tags":["style"]}}'
+        )
+
+
+runtime = MemoryRuntime(
+    config=MemoryConfig(
+        memory_backend="sqlite",
+        rag_enabled=True,
+        llm_relation_judge_enabled=True,
+    ),
+    relation_judge=LLMMemoryRelationJudge(MyRelationClient()),
+)
+```
+
 For CLI debugging, use `remember --json` to simulate an agent-extracted candidate memory and `confirm` to write a returned pending candidate after user approval:
 
 ```bash
@@ -297,7 +338,7 @@ Memora's policy-related configuration fields are active in the manager/runtime w
 
 Manual writes remain allowed unless rejected by safety, transient-state, noisy-output, or semantic conflict policy.
 
-LLM relation judging is an integration hook, not a bundled hosted client. Construct an `LLMMemoryRelationJudge` with a compatible client and pass it to `MemoryManager(..., relation_judge=judge)` while enabling `llm_relation_judge_enabled`. If the injected judge fails or returns invalid JSON, Memora falls back to the deterministic embedding relation behavior.
+LLM relation judging is an integration hook, not a bundled hosted client. Construct an `LLMMemoryRelationJudge` with a compatible client and pass it to `MemoryRuntime(..., relation_judge=judge)` or `MemoryManager(..., relation_judge=judge)` while enabling `llm_relation_judge_enabled`. If the injected judge fails or returns invalid JSON, Memora falls back to the deterministic embedding relation behavior.
 
 ## Agent runtime demo
 
@@ -308,6 +349,14 @@ python examples/simple_agent_runtime.py
 ```
 
 The demo uses `MemoryRuntime` with a local fake assistant response. It does not call an LLM.
+
+Run the offline LLM relation demo:
+
+```bash
+python examples/llm_relation_runtime.py
+```
+
+The demo uses scripted local relation responses to show merge, high-confidence conflict replacement, and fallback behavior without requiring an API key.
 
 ## MVP boundaries
 

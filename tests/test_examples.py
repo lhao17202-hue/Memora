@@ -2,6 +2,24 @@ import subprocess
 import sys
 
 
+def test_llm_relation_runtime_example_runs_successfully():
+    result = subprocess.run(
+        [sys.executable, "examples/llm_relation_runtime.py"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "=== LLM Merge ===" in result.stdout
+    assert "action=updated reason=llm_semantic_merge" in result.stdout
+    assert "Prefer concise answers with short summaries." in result.stdout
+    assert "=== LLM Conflict ===" in result.stdout
+    assert "action=updated reason=llm_semantic_conflict_high_confidence_replace" in result.stdout
+    assert "=== Fallback ===" in result.stdout
+    assert "action=updated reason=semantic_merge" in result.stdout
+
+
 def test_simple_agent_runtime_example_runs_successfully():
     result = subprocess.run(
         [sys.executable, "examples/simple_agent_runtime.py"],
