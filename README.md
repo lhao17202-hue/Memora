@@ -290,10 +290,14 @@ Memora's policy-related configuration fields are active in the manager/runtime w
 - disabled auto-save returns `requires_confirmation`, not `rejected`.
 - `semantic_write_relations_enabled` enables embedding-backed write-time duplicate, merge, and conflict relation detection. It is disabled by default.
 - `semantic_relation_threshold`, `semantic_merge_threshold`, and `semantic_conflict_threshold` tune the similarity gates used before semantic write relations can affect policy decisions.
+- `llm_relation_judge_enabled` lets an injected `MemoryRelationJudge` refine an embedding hit into `none`, `duplicate`, `merge`, or `conflict`.
+- `llm_relation_confidence_threshold`, `llm_merge_confidence_threshold`, and `llm_conflict_auto_replace_threshold` control whether LLM relation decisions are accepted, merged, or allowed to auto-replace.
 - `require_confirmation_for_conflicts` controls whether detected semantic conflicts require confirmation when high-confidence replacement is not allowed.
 - `allow_high_confidence_conflict_replace` and `high_confidence_conflict_threshold` allow high-confidence semantic conflicts to update the target memory automatically.
 
 Manual writes remain allowed unless rejected by safety, transient-state, noisy-output, or semantic conflict policy.
+
+LLM relation judging is an integration hook, not a bundled hosted client. Construct an `LLMMemoryRelationJudge` with a compatible client and pass it to `MemoryManager(..., relation_judge=judge)` while enabling `llm_relation_judge_enabled`. If the injected judge fails or returns invalid JSON, Memora falls back to the deterministic embedding relation behavior.
 
 ## Agent runtime demo
 

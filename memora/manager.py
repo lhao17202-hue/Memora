@@ -15,12 +15,14 @@ from .lifecycle import LifecycleManager
 from .policy import MemoryPolicy
 from .portable import backup_memories, export_memories, import_memories, rebuild_index, verify_memories
 from .rag import RagIndex, RagRetriever, build_embedding_provider, build_reranker, build_vector_store
-from .relations import SemanticMemoryRelationResolver
+from .relations import MemoryRelationJudge, SemanticMemoryRelationResolver
 from .retriever import MemoryRetriever
 from .schema import (
     MemoryCandidate,
     MemoryItem,
     MemoryQuery,
+    MemoryRelation,
+    MemoryRelationDecision,
     MemorySearchResult,
     MemoryWriteResult,
     SessionMessage,
@@ -41,6 +43,7 @@ class MemoryManager:
         config: MemoryConfig | None = None,
         memory_store: MemoryStore | None = None,
         session_store: SessionStore | None = None,
+        relation_judge: MemoryRelationJudge | None = None,
     ):
         self.config = config or MemoryConfig()
         self.memory_store = memory_store or self._build_memory_store()
@@ -53,11 +56,13 @@ class MemoryManager:
         self.rag_index: RagIndex | None = None
         self.rag_retriever: RagRetriever | None = None
         self.relation_resolver: SemanticMemoryRelationResolver | None = None
+        self.relation_judge = relation_judge
         self._rag_sync_errors: list[dict[str, str]] = []
         embedder = None
-        if self.config.rag_enabled or self.config.semantic_write_relations_enabled:
+        relation_resolution_enabled = self.config.semantic_write_relations_enabled or self.config.llm_relation_judge_enabled
+        if self.config.rag_enabled or relation_resolution_enabled:
             embedder = build_embedding_provider(self.config)
-        if self.config.semantic_write_relations_enabled and embedder is not None:
+        if relation_resolution_enabled and embedder is not None:
             self.relation_resolver = SemanticMemoryRelationResolver(embedder, self.config)
         if self.config.rag_enabled and embedder is not None:
             vector_store = build_vector_store(self.config)
@@ -138,9 +143,61 @@ class MemoryManager:
     def _evaluate_candidate_decision(self, candidate: MemoryCandidate) -> MemoryCandidate:
         scoped = self._scoped_memories(candidate.user_id, candidate.project_id, candidate.workspace_id, include_archived=False)
         relation = None
+        relation_decision = None
         if self.relation_resolver is not None and self.policy.rejection_reason(candidate) is None:
             relation = self.relation_resolver.resolve(candidate, scoped)
-        return self.policy.evaluate(candidate, scoped, relation=relation)
+            relation_decision = self._judge_relation(candidate, scoped, relation)
+        decision = self.policy.evaluate(candidate, scoped, relation=relation, relation_decision=relation_decision)
+        if decision.target_memory_id is not None:
+            self._apply_relation_decision(decision, relation_decision)
+        return decision
+
+    def _judge_relation(
+        self,
+        candidate: MemoryCandidate,
+        scoped: list[MemoryItem],
+        relation: MemoryRelation,
+    ) -> MemoryRelationDecision | None:
+        target = self._relation_target(scoped, relation)
+        if target is None:
+            return None
+        if not self.config.llm_relation_judge_enabled:
+            return None
+        if self.relation_judge is None:
+            return None
+        try:
+            decision = self.relation_judge.judge(candidate, target, relation)
+        except Exception:  # noqa: BLE001 - invalid LLM decisions fall back to deterministic relation behavior
+            return None
+        return self._accepted_relation_decision(decision)
+
+    def _accepted_relation_decision(self, decision: MemoryRelationDecision) -> MemoryRelationDecision:
+        if decision.kind == "merge" and decision.confidence < self.config.llm_merge_confidence_threshold:
+            return MemoryRelationDecision(kind="none", confidence=decision.confidence, reason="llm_merge_below_confidence_threshold")
+        if decision.kind in {"duplicate", "none"} and decision.confidence < self.config.llm_relation_confidence_threshold:
+            return MemoryRelationDecision(kind="none", confidence=decision.confidence, reason="llm_relation_below_confidence_threshold")
+        return decision
+
+    def _apply_relation_decision(self, candidate: MemoryCandidate, decision: MemoryRelationDecision | None) -> None:
+        if decision is None or decision.kind != "merge":
+            return
+        if decision.merged_name is not None:
+            candidate.name = decision.merged_name
+            candidate.target_name = slugify(decision.merged_name)
+        if decision.merged_description is not None:
+            candidate.description = decision.merged_description
+        if decision.merged_content is not None:
+            candidate.content = decision.merged_content
+        if decision.merged_tags is not None:
+            candidate.tags = decision.merged_tags
+
+    def _relation_target(self, scoped: list[MemoryItem], relation: MemoryRelation) -> MemoryItem | None:
+        if relation.kind == "none" or relation.target_memory_id is None:
+            return None
+        for item in scoped:
+            if item.id == relation.target_memory_id and item.status == "active":
+                return item
+        return None
 
     def _new_memory_from_candidate(self, decision: MemoryCandidate) -> MemoryItem:
         if decision.weight is None:
@@ -166,6 +223,8 @@ class MemoryManager:
         return item
 
     def _apply_candidate_update(self, existing: MemoryItem, decision: MemoryCandidate) -> MemoryItem:
+        if decision.target_name is not None:
+            existing.name = decision.target_name
         existing.description = decision.description
         existing.content = decision.content
         existing.tags = decision.tags

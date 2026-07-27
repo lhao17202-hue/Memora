@@ -1,6 +1,6 @@
 from memora.config import MemoryConfig
 from memora.errors import MemoryValidationError
-from memora.relations import SemanticMemoryRelationResolver
+from memora.relations import LLMMemoryRelationJudge, SemanticMemoryRelationResolver, parse_relation_decision_json
 from memora.schema import MemoryCandidate, MemoryItem
 
 
@@ -18,6 +18,16 @@ class KeywordEmbeddingProvider:
             else:
                 vectors.append([1.0, 0.0])
         return vectors
+
+
+class StaticRelationClient:
+    def __init__(self, raw_text: str):
+        self.raw_text = raw_text
+        self.messages = None
+
+    def complete(self, messages):
+        self.messages = messages
+        return self.raw_text
 
 
 def candidate(content: str, name: str = "candidate") -> MemoryCandidate:
@@ -118,3 +128,59 @@ def test_semantic_relation_resolver_rejects_invalid_thresholds():
         assert "relation <= merge <= conflict" in str(exc)
     else:
         raise AssertionError("expected MemoryValidationError")
+
+
+def test_parse_relation_decision_json_accepts_merge_decision():
+    decision = parse_relation_decision_json(
+        """
+        {
+          "kind": "merge",
+          "confidence": 0.86,
+          "reason": "Candidate refines the preference.",
+          "merged": {
+            "name": "response-style",
+            "description": "Prefer concise responses.",
+            "content": "Prefer concise responses with short summaries.",
+            "tags": ["style", "summary"]
+          }
+        }
+        """
+    )
+
+    assert decision.kind == "merge"
+    assert decision.confidence == 0.86
+    assert decision.merged_name == "response-style"
+    assert decision.merged_content == "Prefer concise responses with short summaries."
+    assert decision.merged_tags == ["style", "summary"]
+
+
+def test_parse_relation_decision_json_rejects_invalid_payloads():
+    for raw_text in (
+        "not json",
+        '{"kind":"merge","confidence":true,"reason":"bad","merged":{"description":"d","content":"c"}}',
+        '{"kind":"merge","confidence":0.9,"reason":"bad"}',
+        '{"kind":"merge","confidence":0.9,"reason":"bad","merged":{"description":"d","content":"c","tags":"style"}}',
+        '{"kind":"unknown","confidence":0.9,"reason":"bad"}',
+    ):
+        try:
+            parse_relation_decision_json(raw_text)
+        except MemoryValidationError:
+            pass
+        else:
+            raise AssertionError("expected MemoryValidationError")
+
+
+def test_llm_memory_relation_judge_uses_json_prompt_and_parser():
+    client = StaticRelationClient(
+        '{"kind":"conflict","confidence":0.91,"reason":"Candidate changes the language preference."}'
+    )
+    existing = item("Prefer English responses.", name="language-en")
+    relation = resolver().resolve(candidate("Prefer Chinese responses.", name="language-zh"), [existing])
+
+    decision = LLMMemoryRelationJudge(client).judge(candidate("Prefer Chinese responses.", name="language-zh"), existing, relation)
+
+    assert decision.kind == "conflict"
+    assert decision.confidence == 0.91
+    assert client.messages is not None
+    assert client.messages[0]["role"] == "system"
+    assert "candidate" in client.messages[1]["content"]

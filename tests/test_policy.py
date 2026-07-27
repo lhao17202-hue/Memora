@@ -1,7 +1,7 @@
 from memora.config import MemoryConfig
 from memora.errors import MemoryValidationError
 from memora.policy import MemoryPolicy
-from memora.schema import MemoryCandidate, MemoryItem, MemoryRelation
+from memora.schema import MemoryCandidate, MemoryItem, MemoryRelation, MemoryRelationDecision
 
 
 def candidate(content: str, name: str = "memory") -> MemoryCandidate:
@@ -114,11 +114,18 @@ def test_policy_rejects_invalid_high_confidence_conflict_config():
         MemoryConfig(high_confidence_conflict_threshold=True),
         MemoryConfig(high_confidence_conflict_threshold=1.1),
         MemoryConfig(allow_high_confidence_conflict_replace="yes"),
+        MemoryConfig(llm_relation_judge_enabled="yes"),
+        MemoryConfig(llm_conflict_auto_replace_threshold=1.1),
     ):
         try:
             MemoryPolicy(config)
         except MemoryValidationError as exc:
-            assert "confidence_conflict" in str(exc) or "allow_high_confidence_conflict_replace" in str(exc)
+            assert (
+                "confidence_conflict" in str(exc)
+                or "allow_high_confidence_conflict_replace" in str(exc)
+                or "llm_relation" in str(exc)
+                or "llm_conflict" in str(exc)
+            )
         else:
             raise AssertionError("expected MemoryValidationError")
 
@@ -272,3 +279,49 @@ def test_semantic_merge_updates_existing_memory():
     assert result.action == "update"
     assert result.reason == "semantic_merge"
     assert result.target_memory_id == "mem_1"
+
+
+def test_llm_relation_decision_none_overrides_embedding_relation():
+    existing = [MemoryItem(id="mem_1", name="style", description="old", type="preference", content="Prefer concise responses.")]
+
+    result = MemoryPolicy().evaluate(
+        candidate("Prefer vim.", name="editor"),
+        existing,
+        relation=MemoryRelation(kind="merge", target_memory_id="mem_1", similarity_score=0.90),
+        relation_decision=MemoryRelationDecision(kind="none", confidence=0.95, reason="Different facts."),
+    )
+
+    assert result.action == "create"
+    assert result.reason == "accepted"
+    assert result.target_memory_id is None
+
+
+def test_llm_relation_decision_merge_updates_existing_memory():
+    existing = [MemoryItem(id="mem_1", name="style", description="old", type="preference", content="Prefer concise responses.")]
+
+    result = MemoryPolicy().evaluate(
+        candidate("Prefer concise responses with short summaries.", name="response-style"),
+        existing,
+        relation=MemoryRelation(kind="merge", target_memory_id="mem_1", similarity_score=0.90),
+        relation_decision=MemoryRelationDecision(kind="merge", confidence=0.85, reason="Refinement."),
+    )
+
+    assert result.action == "update"
+    assert result.reason == "llm_semantic_merge"
+    assert result.target_memory_id == "mem_1"
+
+
+def test_llm_conflict_auto_replace_uses_decision_confidence():
+    existing = [MemoryItem(id="mem_1", name="language", description="old", type="preference", content="Prefer English.")]
+    item = candidate("Prefer Chinese.", name="language-zh")
+    item.confidence = 0.10
+
+    result = MemoryPolicy().evaluate(
+        item,
+        existing,
+        relation=MemoryRelation(kind="merge", target_memory_id="mem_1", similarity_score=0.95),
+        relation_decision=MemoryRelationDecision(kind="conflict", confidence=0.95, reason="Preference changed."),
+    )
+
+    assert result.action == "update"
+    assert result.reason == "llm_semantic_conflict_high_confidence_replace"

@@ -208,8 +208,15 @@ class FileMemoryStore:
         return None
 
     def update_memory(self, item: MemoryItem) -> MemoryItem:
+        existing = self.get_memory(item.id)
+        old_path = self._path_for_item(existing) if existing is not None else None
         item.updated_at = now_utc()
-        return self.save_memory(item)
+        saved = self.save_memory(item)
+        new_path = self._path_for_item(saved)
+        if old_path is not None and old_path != new_path and old_path.exists():
+            old_path.unlink()
+            self.rebuild_index()
+        return saved
 
     def set_memory_status(self, identifier: str, status: str) -> MemoryItem:
         validate_memory_status(status)

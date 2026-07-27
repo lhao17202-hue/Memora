@@ -2,14 +2,42 @@
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
+from typing import Mapping, Protocol, Sequence
 
 from .config import MemoryConfig
 from .embeddings import EmbeddingProvider, memory_embedding_text
 from .errors import MemoryValidationError
-from .schema import MemoryCandidate, MemoryItem, MemoryRelation
+from .schema import MemoryCandidate, MemoryItem, MemoryRelation, MemoryRelationDecision
 from .vector_store import cosine_similarity
+
+RELATION_JUDGE_SYSTEM_PROMPT = """Judge whether an extracted candidate memory changes, duplicates, merges with, conflicts with, or is unrelated to an existing memory.
+Return JSON only. Do not include markdown.
+Allowed kind values: none, duplicate, merge, conflict.
+Use "none" when the candidate should be written as a separate memory.
+Use "duplicate" when the candidate says the same durable fact.
+Use "merge" when the candidate refines or extends the existing memory without contradiction.
+Use "conflict" when the candidate invalidates or contradicts the existing memory.
+For merge, include a "merged" object with name, description, content, and tags.
+The JSON shape is:
+{"kind":"merge","confidence":0.86,"reason":"brief reason","merged":{"name":"...","description":"...","content":"...","tags":["..."]}}"""
+
+
+class LLMRelationClient(Protocol):
+    def complete(self, messages: Sequence[Mapping[str, str]]) -> str:
+        """Return a JSON-only relation decision response."""
+
+
+class MemoryRelationJudge(Protocol):
+    def judge(
+        self,
+        candidate: MemoryCandidate,
+        target: MemoryItem,
+        relation: MemoryRelation,
+    ) -> MemoryRelationDecision:
+        ...
 
 
 def candidate_embedding_text(candidate: MemoryCandidate) -> str:
@@ -72,6 +100,121 @@ class SemanticMemoryRelationResolver:
         return MemoryRelation(similarity_score=similarity, reason="below_semantic_merge_threshold")
 
 
+class DeterministicRelationJudge:
+    def judge(
+        self,
+        candidate: MemoryCandidate,
+        target: MemoryItem,
+        relation: MemoryRelation,
+    ) -> MemoryRelationDecision:
+        return MemoryRelationDecision(
+            kind=relation.kind,
+            confidence=relation.similarity_score,
+            reason=relation.reason or "deterministic_relation",
+        )
+
+
+class LLMMemoryRelationJudge:
+    def __init__(self, client: LLMRelationClient):
+        self.client = client
+
+    def judge(
+        self,
+        candidate: MemoryCandidate,
+        target: MemoryItem,
+        relation: MemoryRelation,
+    ) -> MemoryRelationDecision:
+        raw_text = self.client.complete(relation_judge_prompt_messages(candidate, target, relation))
+        return parse_relation_decision_json(raw_text)
+
+
+def relation_judge_prompt_messages(
+    candidate: MemoryCandidate,
+    target: MemoryItem,
+    relation: MemoryRelation,
+) -> list[dict[str, str]]:
+    payload = {
+        "candidate": {
+            "name": candidate.name,
+            "type": candidate.type,
+            "description": candidate.description,
+            "content": candidate.content,
+            "tags": candidate.tags,
+            "confidence": candidate.confidence,
+        },
+        "existing_memory": {
+            "id": target.id,
+            "name": target.name,
+            "type": target.type,
+            "description": target.description,
+            "content": target.content,
+            "tags": target.tags,
+            "updated_at": target.updated_at.isoformat() if target.updated_at else None,
+        },
+        "embedding_relation": {
+            "kind": relation.kind,
+            "similarity_score": relation.similarity_score,
+            "reason": relation.reason,
+        },
+    }
+    return [
+        {"role": "system", "content": RELATION_JUDGE_SYSTEM_PROMPT},
+        {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+    ]
+
+
+def parse_relation_decision_json(raw_text: str) -> MemoryRelationDecision:
+    try:
+        payload = json.loads(raw_text)
+    except json.JSONDecodeError as exc:
+        raise MemoryValidationError(f"invalid_relation_decision_json:{exc.msg}") from exc
+    if not isinstance(payload, dict):
+        raise MemoryValidationError("relation_decision_payload_must_be_object")
+
+    kind = payload.get("kind")
+    if kind not in {"none", "duplicate", "merge", "conflict"}:
+        raise MemoryValidationError(f"invalid relation decision kind: {kind}")
+
+    confidence = payload.get("confidence")
+    if isinstance(confidence, bool) or not isinstance(confidence, int | float) or confidence < 0.0 or confidence > 1.0:
+        raise MemoryValidationError("relation decision confidence must be from 0.0 to 1.0")
+
+    reason = payload.get("reason", "")
+    if reason is None:
+        reason = ""
+    if not isinstance(reason, str):
+        raise MemoryValidationError("relation decision reason must be a string")
+
+    merged_name = None
+    merged_description = None
+    merged_content = None
+    merged_tags = None
+    raw_merged = payload.get("merged")
+    if raw_merged is not None:
+        if not isinstance(raw_merged, dict):
+            raise MemoryValidationError("relation decision merged must be an object")
+        merged_name = _optional_non_empty_string(raw_merged, "name")
+        merged_description = _optional_non_empty_string(raw_merged, "description")
+        merged_content = _optional_non_empty_string(raw_merged, "content")
+        if raw_merged.get("tags") is not None:
+            raw_tags = raw_merged.get("tags")
+            if not isinstance(raw_tags, list) or not all(isinstance(tag, str) for tag in raw_tags):
+                raise MemoryValidationError("relation decision merged tags must be a list of strings")
+            merged_tags = raw_tags
+    if kind == "merge" and (not merged_description or not merged_content):
+        raise MemoryValidationError("merge relation decision requires merged description and content")
+
+    return MemoryRelationDecision(
+        kind=kind,
+        confidence=float(confidence),
+        reason=reason,
+        merged_name=merged_name,
+        merged_description=merged_description,
+        merged_content=merged_content,
+        merged_tags=merged_tags,
+    )
+
+
 def _target_relation(kind: str, target: MemoryItem, similarity: float, reason: str) -> MemoryRelation:
     return MemoryRelation(
         kind=kind,
@@ -80,6 +223,15 @@ def _target_relation(kind: str, target: MemoryItem, similarity: float, reason: s
         similarity_score=similarity,
         reason=reason,
     )
+
+
+def _optional_non_empty_string(data: dict, field_name: str) -> str | None:
+    value = data.get(field_name)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise MemoryValidationError(f"relation decision merged {field_name} must be a non-empty string")
+    return value
 
 
 def _validate_thresholds(thresholds: RelationThresholds) -> None:

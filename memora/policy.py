@@ -6,7 +6,7 @@ import re
 
 from .config import MemoryConfig
 from .errors import MemoryValidationError
-from .schema import MemoryCandidate, MemoryItem, MemoryRelation
+from .schema import MemoryCandidate, MemoryItem, MemoryRelation, MemoryRelationDecision
 from .utils import slugify
 
 SECRET_PATTERNS = [
@@ -98,6 +98,7 @@ class MemoryPolicy:
         candidate: MemoryCandidate,
         existing: list[MemoryItem],
         relation: MemoryRelation | None = None,
+        relation_decision: MemoryRelationDecision | None = None,
     ) -> MemoryCandidate:
         """Return a deterministic policy decision for a candidate.
 
@@ -114,11 +115,12 @@ class MemoryPolicy:
 
         duplicate = self.find_duplicate(candidate, existing)
         relation = None if duplicate else self._usable_relation(relation, existing)
+        relation_kind = relation_decision.kind if relation_decision is not None else (relation.kind if relation is not None else "none")
         if duplicate:
             candidate.target_memory_id = duplicate.id
             candidate.target_updated_at = duplicate.updated_at
             candidate.suggested_action = "update"
-        elif relation and relation.kind in {"duplicate", "merge", "conflict"}:
+        elif relation and relation_kind in {"duplicate", "merge", "conflict"}:
             candidate.target_memory_id = relation.target_memory_id
             candidate.target_updated_at = relation.target_updated_at
             candidate.suggested_action = "update"
@@ -136,25 +138,35 @@ class MemoryPolicy:
             candidate.action = "update"
             candidate.reason = "duplicate_or_same_key"
             return candidate
-        if relation and relation.kind == "duplicate":
+        if relation and relation_kind == "duplicate":
             candidate.action = "update"
-            candidate.reason = "semantic_duplicate"
+            candidate.reason = "llm_semantic_duplicate" if relation_decision is not None else "semantic_duplicate"
             return candidate
-        if relation and relation.kind == "merge":
+        if relation and relation_kind == "merge":
             candidate.action = "update"
-            candidate.reason = "semantic_merge"
+            candidate.reason = "llm_semantic_merge" if relation_decision is not None else "semantic_merge"
             return candidate
-        if relation and relation.kind == "conflict":
+        if relation and relation_kind == "conflict":
+            confidence = relation_decision.confidence if relation_decision is not None else candidate.confidence
+            threshold = (
+                self.config.llm_conflict_auto_replace_threshold
+                if relation_decision is not None
+                else self.config.high_confidence_conflict_threshold
+            )
             if (
                 self.config.allow_high_confidence_conflict_replace
-                and candidate.confidence >= self.config.high_confidence_conflict_threshold
+                and confidence >= threshold
             ):
                 candidate.action = "update"
-                candidate.reason = "semantic_conflict_high_confidence_replace"
+                candidate.reason = (
+                    "llm_semantic_conflict_high_confidence_replace"
+                    if relation_decision is not None
+                    else "semantic_conflict_high_confidence_replace"
+                )
                 return candidate
             if self.config.require_confirmation_for_conflicts:
                 candidate.action = "ask_user"
-                candidate.reason = "semantic_conflict_requires_confirmation"
+                candidate.reason = "llm_semantic_conflict_requires_confirmation" if relation_decision is not None else "semantic_conflict_requires_confirmation"
                 return candidate
             candidate.target_memory_id = None
             candidate.target_updated_at = None
@@ -175,8 +187,16 @@ class MemoryPolicy:
         return relation
 
     def _validate_conflict_config(self) -> None:
-        threshold = self.config.high_confidence_conflict_threshold
-        if isinstance(threshold, bool) or not isinstance(threshold, int | float) or threshold < 0.0 or threshold > 1.0:
-            raise MemoryValidationError("high_confidence_conflict_threshold must be from 0.0 to 1.0")
+        for field_name in (
+            "high_confidence_conflict_threshold",
+            "llm_relation_confidence_threshold",
+            "llm_merge_confidence_threshold",
+            "llm_conflict_auto_replace_threshold",
+        ):
+            threshold = getattr(self.config, field_name)
+            if isinstance(threshold, bool) or not isinstance(threshold, int | float) or threshold < 0.0 or threshold > 1.0:
+                raise MemoryValidationError(f"{field_name} must be from 0.0 to 1.0")
         if not isinstance(self.config.allow_high_confidence_conflict_replace, bool):
             raise MemoryValidationError("allow_high_confidence_conflict_replace must be a boolean")
+        if not isinstance(self.config.llm_relation_judge_enabled, bool):
+            raise MemoryValidationError("llm_relation_judge_enabled must be a boolean")

@@ -30,6 +30,10 @@ class MemoryConfig:
     semantic_conflict_threshold: float = 0.90
     allow_high_confidence_conflict_replace: bool = True
     high_confidence_conflict_threshold: float = 0.90
+    llm_relation_judge_enabled: bool = False
+    llm_relation_confidence_threshold: float = 0.80
+    llm_merge_confidence_threshold: float = 0.75
+    llm_conflict_auto_replace_threshold: float = 0.90
     reranker: str = "deterministic"
     rerank_candidate_limit: int = 100
     max_retrieved_memories: int = 8

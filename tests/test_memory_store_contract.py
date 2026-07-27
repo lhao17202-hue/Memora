@@ -58,6 +58,19 @@ def test_memory_store_save_list_get_and_round_trip(memory_store):
     assert found_by_name.id == saved.id
 
 
+def test_memory_store_update_can_rename_without_leaving_old_name(memory_store):
+    saved = memory_store.save_memory(memory_item())
+    saved.name = "Language Preference Updated"
+
+    updated = memory_store.update_memory(saved)
+    listed = memory_store.list_memories(include_archived=True)
+
+    assert updated.name == "language-preference-updated"
+    assert [item.id for item in listed] == [saved.id]
+    assert memory_store.get_memory("language-preference") is None
+    assert memory_store.get_memory("language-preference-updated").id == saved.id
+
+
 def test_memory_store_status_and_delete_contract(memory_store):
     saved = memory_store.save_memory(memory_item())
 

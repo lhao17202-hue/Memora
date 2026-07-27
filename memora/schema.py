@@ -64,6 +64,7 @@ class MemoryCandidate:
     weight: int | None = None
     target_memory_id: str | None = None
     target_updated_at: datetime | None = None
+    target_name: str | None = None
     suggested_action: SuggestedAction | None = None
     reason: str = ""
 
@@ -89,6 +90,17 @@ class MemoryRelation:
     target_updated_at: datetime | None = None
     similarity_score: float = 0.0
     reason: str = ""
+
+
+@dataclass
+class MemoryRelationDecision:
+    kind: RelationKind = "none"
+    confidence: float = 0.0
+    reason: str = ""
+    merged_name: str | None = None
+    merged_description: str | None = None
+    merged_content: str | None = None
+    merged_tags: list[str] | None = None
 
 
 @dataclass
