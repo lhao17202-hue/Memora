@@ -5,7 +5,7 @@ shape an external agent can use:
 
 1. The agent extracts structured candidate memories.
 2. Memora uses embeddings to find a possible existing relation.
-3. An injected relation judge can refine that hit into none/duplicate/merge/conflict.
+3. An injected relation judge can refine that hit into none/duplicate/merge/conflict/supersede.
 4. Memora writes the local store and syncs the RAG index when enabled.
 
 Run:
@@ -119,6 +119,7 @@ def run_conflict_demo() -> None:
     print("=== LLM Conflict ===")
     print(f"action={result.action} reason={result.reason}")
     print(result.memory.content if result.memory else "(no write)")
+    print(f"supersedes={result.memory.supersedes if result.memory else []}")
 
 
 def run_fallback_demo() -> None:

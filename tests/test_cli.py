@@ -65,6 +65,24 @@ def test_init_save_list_show_search_clean(tmp_path: Path):
     assert "archived" in clean.stdout
 
 
+def test_context_command_outputs_pinned_and_on_demand_memories(tmp_path: Path):
+    root = tmp_path / ".memora"
+    assert run_cli(root, "save", "--type", "preference", "--name", "style", "--description", "style", "--content", "Prefer concise answers.").returncode == 0
+    assert run_cli(root, "save", "--type", "project", "--name", "tests", "--description", "tests", "--content", "Project uses pytest.").returncode == 0
+    assert run_cli(root, "save", "--type", "tool", "--name", "pytest-tool", "--description", "pytest", "--content", "Run pytest -q for verification.").returncode == 0
+
+    context = run_cli(root, "context", "pytest")
+    json_context = run_cli(root, "context", "pytest", "--json")
+    payload = json.loads(json_context.stdout)
+
+    assert context.returncode == 0
+    assert "Prefer concise answers." in context.stdout
+    assert "Project uses pytest." in context.stdout
+    assert "Run pytest -q for verification." in context.stdout
+    assert json_context.returncode == 0
+    assert [item["memory"]["type"] for item in payload] == ["preference", "project", "tool"]
+
+
 def test_session_append_and_show(tmp_path: Path):
     root = tmp_path / ".memora"
     result = run_cli(root, "session", "append", "session_1", "--role", "user", "--content", "hello")

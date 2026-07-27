@@ -216,6 +216,12 @@ class MemoryRuntime:
                         candidate=pending,
                         reason=pending.reason,
                         target_memory_id=pending.target_memory_id,
+                        relation_kind=evaluated.relation_kind,
+                        relation_confidence=evaluated.relation_confidence,
+                        relation_reason=evaluated.relation_reason,
+                        relation_judge_status=evaluated.relation_judge_status,
+                        relation_judge_error=evaluated.relation_judge_error,
+                        rag_sync_errors=list(evaluated.rag_sync_errors),
                     )
                 )
                 continue

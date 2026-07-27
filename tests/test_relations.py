@@ -154,6 +154,16 @@ def test_parse_relation_decision_json_accepts_merge_decision():
     assert decision.merged_tags == ["style", "summary"]
 
 
+def test_parse_relation_decision_json_accepts_supersede_decision():
+    decision = parse_relation_decision_json(
+        '{"kind":"supersede","confidence":0.93,"reason":"Candidate explicitly replaces the old preference."}'
+    )
+
+    assert decision.kind == "supersede"
+    assert decision.confidence == 0.93
+    assert decision.reason == "Candidate explicitly replaces the old preference."
+
+
 def test_parse_relation_decision_json_rejects_invalid_payloads():
     for raw_text in (
         "not json",

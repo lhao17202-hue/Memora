@@ -866,7 +866,7 @@ def test_semantic_conflict_requires_confirmation_without_writing(tmp_path: Path)
     assert result.memory is None
     assert result.target_memory_id == existing.id
     assert result.candidate is not None
-    assert result.candidate.suggested_action == "update"
+    assert result.candidate.suggested_action == "supersede"
     assert manager.memory_store.get_memory(existing.id).content == "Prefer English responses."
 
 
@@ -929,11 +929,17 @@ def test_llm_conflict_high_confidence_replaces_existing_memory(tmp_path: Path):
         )
     )
 
-    assert result.action == "updated"
+    assert result.action == "superseded"
     assert result.reason == "llm_semantic_conflict_high_confidence_replace"
     assert result.memory is not None
-    assert result.memory.id == existing.id
+    assert result.memory.id != existing.id
     assert result.memory.content == "Prefer Chinese responses."
+    assert result.memory.supersedes == [existing.id]
+    assert existing.id in result.memory.related
+    archived = manager.memory_store.get_memory(existing.id)
+    assert archived is not None
+    assert archived.status == "archived"
+    assert archived.content == "Prefer English responses."
     assert result.relation_kind == "conflict"
     assert result.relation_confidence == 0.95
     assert result.relation_reason == "Candidate changes language preference."
@@ -989,11 +995,46 @@ def test_high_confidence_semantic_conflict_replaces_existing_memory(tmp_path: Pa
 
     result = manager.remember_candidate(candidate)
 
-    assert result.action == "updated"
+    assert result.action == "superseded"
     assert result.reason == "semantic_conflict_high_confidence_replace"
     assert result.memory is not None
-    assert result.memory.id == existing.id
+    assert result.memory.id != existing.id
     assert result.memory.content == "Prefer Chinese responses."
+    assert result.memory.supersedes == [existing.id]
+    archived = manager.memory_store.get_memory(existing.id)
+    assert archived is not None
+    assert archived.status == "archived"
+    assert archived.content == "Prefer English responses."
+
+
+def test_supersede_with_same_candidate_name_creates_unique_sqlite_memory(tmp_path: Path):
+    manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", memory_backend="sqlite"))
+    manager.init_storage()
+    existing = manager.save_memory("preference", "Prefer English responses.", "language", name="language")
+    manager.relation_resolver = FixedRelationResolver(
+        MemoryRelation(kind="conflict", target_memory_id=existing.id, target_updated_at=existing.updated_at, similarity_score=0.95, reason="semantic_conflict")
+    )
+
+    result = manager.remember_candidate(
+        MemoryCandidate(
+            action="create",
+            type="preference",
+            name="language",
+            description="Prefer Chinese responses.",
+            content="Prefer Chinese responses.",
+            confidence=0.95,
+        )
+    )
+    all_items = manager.list_memories(include_archived=True)
+
+    assert result.action == "superseded"
+    assert result.memory is not None
+    assert result.memory.name.startswith("language-replacement-supersedes-")
+    assert result.memory.supersedes == [existing.id]
+    assert [(item.name, item.status) for item in all_items] == [
+        ("language", "archived"),
+        (result.memory.name, "active"),
+    ]
 
 
 def test_evaluate_memory_candidate_returns_enriched_confirmation(tmp_path: Path):
@@ -1114,10 +1155,14 @@ def test_confirm_memory_candidate_updates_semantic_conflict_target(tmp_path: Pat
 
     confirmed = manager.confirm_memory_candidate(pending.candidate)
 
-    assert confirmed.action == "updated"
+    assert confirmed.action == "superseded"
     assert confirmed.memory is not None
-    assert confirmed.memory.id == existing.id
+    assert confirmed.memory.id != existing.id
     assert confirmed.memory.content == "Prefer Chinese responses."
+    assert confirmed.memory.supersedes == [existing.id]
+    archived = manager.memory_store.get_memory(existing.id)
+    assert archived is not None
+    assert archived.status == "archived"
     assert confirmed.relation_kind == "conflict"
     assert confirmed.relation_confidence == 0.95
     assert confirmed.relation_reason == "semantic_conflict"
@@ -1472,3 +1517,43 @@ def test_llm_merge_update_syncs_rag_index(tmp_path: Path):
     assert verify["vector_ok"] is True
     assert verify["embedding_mismatches"] == []
     assert [search_result.memory.id for search_result in results] == [existing.id]
+
+
+def test_semantic_supersede_archives_old_memory_and_syncs_rag_index(tmp_path: Path):
+    manager = MemoryManager(
+        MemoryConfig(
+            root_dir=tmp_path / ".memora",
+            memory_backend="sqlite",
+            rag_enabled=True,
+        )
+    )
+    manager.init_storage()
+    existing = manager.save_memory("preference", "old english response marker", "language", name="language-en")
+    manager.relation_resolver = FixedRelationResolver(
+        MemoryRelation(kind="conflict", target_memory_id=existing.id, target_updated_at=existing.updated_at, similarity_score=0.95, reason="semantic_conflict")
+    )
+
+    result = manager.remember_candidate(
+        MemoryCandidate(
+            action="create",
+            type="preference",
+            name="language-zh",
+            description="Prefer Chinese responses.",
+            content="new chinese response marker",
+            confidence=0.95,
+        )
+    )
+    verify = manager.verify_memories()
+    old_results = manager.retrieve_memory("old english response marker")
+    new_results = manager.retrieve_memory("new chinese response marker")
+
+    assert result.action == "superseded"
+    assert result.memory is not None
+    assert result.memory.supersedes == [existing.id]
+    archived = manager.memory_store.get_memory(existing.id)
+    assert archived is not None
+    assert archived.status == "archived"
+    assert existing.id not in [search_result.memory.id for search_result in old_results]
+    assert [search_result.memory.id for search_result in new_results] == [result.memory.id]
+    assert verify["vector_ok"] is True
+    assert verify["rag_sync_errors"] == []

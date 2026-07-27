@@ -7,7 +7,7 @@ from memora.extraction import LLMMemoryExtractor, parse_extraction_json
 from memora.manager import MemoryManager
 from memora.relations import LLMMemoryRelationJudge
 from memora.runtime import MemoryRuntime
-from memora.schema import MemoryCandidate
+from memora.schema import MemoryCandidate, MemoryRelation
 
 
 def make_runtime(tmp_path: Path) -> MemoryRuntime:
@@ -378,6 +378,19 @@ def test_runtime_llm_relation_judge_merges_and_keeps_rag_index_current(tmp_path:
 
 def test_remember_extraction_artifact_returns_confirmation_for_low_confidence(tmp_path: Path):
     runtime = make_runtime(tmp_path)
+    existing = runtime.manager.save_memory("preference", "Prefer long answers.", "response style", name="long-style")
+
+    class FixedRelationResolver:
+        def resolve(self, candidate, existing_memories):
+            return MemoryRelation(
+                kind="conflict",
+                target_memory_id=existing.id,
+                target_updated_at=existing.updated_at,
+                similarity_score=0.91,
+                reason="semantic_conflict",
+            )
+
+    runtime.manager.relation_resolver = FixedRelationResolver()
     artifact = parse_extraction_json(
         '{"should_remember": true, "memories": ['
         '{"type": "preference", "name": "tentative-style", '
@@ -392,7 +405,11 @@ def test_remember_extraction_artifact_returns_confirmation_for_low_confidence(tm
     assert [result.action for result in results] == ["requires_confirmation"]
     assert results[0].reason == "low_confidence_extraction"
     assert isinstance(results[0].candidate, MemoryCandidate)
-    assert runtime.manager.list_memories() == []
+    assert results[0].target_memory_id == existing.id
+    assert results[0].relation_kind == "conflict"
+    assert results[0].relation_confidence == 0.91
+    assert results[0].relation_reason == "semantic_conflict"
+    assert [memory.id for memory in runtime.manager.list_memories()] == [existing.id]
 
 
 def test_low_confidence_extraction_still_respects_policy_rejection(tmp_path: Path):

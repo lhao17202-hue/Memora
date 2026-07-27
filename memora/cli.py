@@ -13,6 +13,7 @@ from .errors import MemoraError, MemoryValidationError
 from .manager import MemoryManager
 from .embeddings import EMBEDDING_PROVIDER_CHOICES
 from .reranker import RERANKER_CHOICES
+from .runtime import MemoryRuntime
 from .schema import MemoryCandidate, SessionMessage
 from .vector_store import VECTOR_STORE_CHOICES
 
@@ -59,7 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     confirm_parser = subparsers.add_parser("confirm", help="Confirm a pending candidate JSON file.")
     confirm_parser.add_argument("--candidate", required=True, help="Path to a pending candidate JSON file or remember --json result.")
-    confirm_parser.add_argument("--action", choices=("create", "update"), help="Override the candidate suggested action.")
+    confirm_parser.add_argument("--action", choices=("create", "update", "supersede"), help="Override the candidate suggested action.")
     confirm_parser.add_argument("--target", dest="target_memory_id", help="Override the candidate target memory ID.")
     confirm_parser.add_argument("--json", action="store_true", help="Print machine-readable JSON output.")
 
@@ -106,6 +107,17 @@ def build_parser() -> argparse.ArgumentParser:
     search_parser.add_argument("--tag", action="append", dest="tags")
     search_parser.add_argument("--top-k", type=int)
     search_parser.add_argument("--archived", action="store_true", help="Include archived memories.")
+
+    context_parser = subparsers.add_parser("context", help="Build typed agent memory context.")
+    context_parser.add_argument("query")
+    context_parser.add_argument("--type", action="append", dest="memory_types", help="On-demand memory type to retrieve.")
+    context_parser.add_argument("--tag", action="append", dest="tags")
+    context_parser.add_argument("--top-k", type=int, help="Maximum on-demand memories.")
+    context_parser.add_argument("--pinned-top-k", type=int, help="Maximum pinned memories.")
+    context_parser.add_argument("--no-pinned", action="store_true", help="Skip pinned preference/project context.")
+    context_parser.add_argument("--archived", action="store_true", help="Include archived memories.")
+    context_parser.add_argument("--no-knowledge", action="store_true", help="Exclude knowledge memories.")
+    context_parser.add_argument("--json", action="store_true", help="Print machine-readable JSON output.")
 
     subparsers.add_parser("clean", help="Archive expired or cold memories.")
 
@@ -169,6 +181,21 @@ def _write_result_to_dict(result) -> dict:
         "rag_sync_errors": result.rag_sync_errors,
         "memory": asdict(result.memory) if result.memory is not None else None,
         "candidate": asdict(result.candidate) if result.candidate is not None else None,
+    }
+
+
+def _search_result_to_dict(result) -> dict:
+    return {
+        "memory": asdict(result.memory),
+        "similarity_score": result.similarity_score,
+        "importance_score": result.importance_score,
+        "recency_score": result.recency_score,
+        "access_score": result.access_score,
+        "final_score": result.final_score,
+        "reason": result.reason,
+        "semantic_score": result.semantic_score,
+        "keyword_score": result.keyword_score,
+        "rerank_score": result.rerank_score,
     }
 
 
@@ -365,6 +392,24 @@ def _run_command(args, manager: MemoryManager, parser: argparse.ArgumentParser) 
         )
         for result in results:
             print(f"{result.final_score:.3f}\t{result.memory.id}\t{result.memory.name}\t{result.memory.description}")
+        return 0
+
+    if args.command == "context":
+        runtime = MemoryRuntime(manager=manager)
+        results = runtime.retrieve_task_context(
+            args.query,
+            memory_types=args.memory_types,
+            tags=args.tags,
+            top_k=args.top_k,
+            pinned_top_k=args.pinned_top_k,
+            include_pinned=not args.no_pinned,
+            include_archived=args.archived,
+            include_knowledge=not args.no_knowledge,
+        )
+        if args.json:
+            print(json.dumps([_search_result_to_dict(result) for result in results], ensure_ascii=False, default=_json_default))
+            return 0
+        print(manager.format_memories_for_prompt(results=results))
         return 0
 
     if args.command == "clean":

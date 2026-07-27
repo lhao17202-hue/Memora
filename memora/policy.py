@@ -114,9 +114,13 @@ class MemoryPolicy:
             return candidate
 
         duplicate = self.find_duplicate(candidate, existing)
-        relation = None if duplicate else self._usable_relation(relation, existing)
+        relation = self._usable_relation(relation, existing)
         relation_kind = relation_decision.kind if relation_decision is not None else (relation.kind if relation is not None else "none")
-        if duplicate:
+        if relation and relation_kind in {"conflict", "supersede"}:
+            candidate.target_memory_id = relation.target_memory_id
+            candidate.target_updated_at = relation.target_updated_at
+            candidate.suggested_action = "supersede"
+        elif duplicate:
             candidate.target_memory_id = duplicate.id
             candidate.target_updated_at = duplicate.updated_at
             candidate.suggested_action = "update"
@@ -134,7 +138,7 @@ class MemoryPolicy:
             candidate.action = "ask_user"
             candidate.reason = auto_save_reason
             return candidate
-        if duplicate:
+        if duplicate and relation_kind not in {"conflict", "supersede"}:
             candidate.action = "update"
             candidate.reason = "duplicate_or_same_key"
             return candidate
@@ -146,7 +150,7 @@ class MemoryPolicy:
             candidate.action = "update"
             candidate.reason = "llm_semantic_merge" if relation_decision is not None else "semantic_merge"
             return candidate
-        if relation and relation_kind == "conflict":
+        if relation and relation_kind in {"conflict", "supersede"}:
             confidence = relation_decision.confidence if relation_decision is not None else candidate.confidence
             threshold = (
                 self.config.llm_conflict_auto_replace_threshold
@@ -157,16 +161,20 @@ class MemoryPolicy:
                 self.config.allow_high_confidence_conflict_replace
                 and confidence >= threshold
             ):
-                candidate.action = "update"
+                candidate.action = "supersede"
                 candidate.reason = (
-                    "llm_semantic_conflict_high_confidence_replace"
+                    f"llm_semantic_{relation_kind}_high_confidence_replace"
                     if relation_decision is not None
                     else "semantic_conflict_high_confidence_replace"
                 )
                 return candidate
             if self.config.require_confirmation_for_conflicts:
                 candidate.action = "ask_user"
-                candidate.reason = "llm_semantic_conflict_requires_confirmation" if relation_decision is not None else "semantic_conflict_requires_confirmation"
+                candidate.reason = (
+                    f"llm_semantic_{relation_kind}_requires_confirmation"
+                    if relation_decision is not None
+                    else "semantic_conflict_requires_confirmation"
+                )
                 return candidate
             candidate.target_memory_id = None
             candidate.target_updated_at = None

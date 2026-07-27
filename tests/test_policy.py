@@ -233,7 +233,7 @@ def test_semantic_conflict_requires_confirmation():
     assert result.action == "ask_user"
     assert result.reason == "semantic_conflict_requires_confirmation"
     assert result.target_memory_id == "mem_1"
-    assert result.suggested_action == "update"
+    assert result.suggested_action == "supersede"
 
 
 def test_high_confidence_semantic_conflict_can_replace():
@@ -247,9 +247,10 @@ def test_high_confidence_semantic_conflict_can_replace():
         relation=MemoryRelation(kind="conflict", target_memory_id="mem_1", similarity_score=0.95),
     )
 
-    assert result.action == "update"
+    assert result.action == "supersede"
     assert result.reason == "semantic_conflict_high_confidence_replace"
     assert result.target_memory_id == "mem_1"
+    assert result.suggested_action == "supersede"
 
 
 def test_semantic_conflict_confirmation_can_be_disabled():
@@ -323,5 +324,5 @@ def test_llm_conflict_auto_replace_uses_decision_confidence():
         relation_decision=MemoryRelationDecision(kind="conflict", confidence=0.95, reason="Preference changed."),
     )
 
-    assert result.action == "update"
+    assert result.action == "supersede"
     assert result.reason == "llm_semantic_conflict_high_confidence_replace"

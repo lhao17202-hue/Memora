@@ -11,15 +11,15 @@ from .taxonomy import MemoryType, VALID_MEMORY_TYPES
 
 MemoryStatus = Literal["active", "archived", "deleted"]
 
-CandidateAction = Literal["create", "update", "archive", "delete", "reject", "ask_user"]
-SuggestedAction = Literal["create", "update"]
-RelationKind = Literal["none", "duplicate", "merge", "conflict"]
+CandidateAction = Literal["create", "update", "supersede", "archive", "delete", "reject", "ask_user"]
+SuggestedAction = Literal["create", "update", "supersede"]
+RelationKind = Literal["none", "duplicate", "merge", "conflict", "supersede"]
 
 VALID_MEMORY_STATUSES = ("active", "archived", "deleted")
 
-VALID_CANDIDATE_ACTIONS = ("create", "update", "archive", "delete", "reject", "ask_user")
+VALID_CANDIDATE_ACTIONS = ("create", "update", "supersede", "archive", "delete", "reject", "ask_user")
 
-VALID_SUGGESTED_ACTIONS = ("create", "update")
+VALID_SUGGESTED_ACTIONS = ("create", "update", "supersede")
 
 VALID_SESSION_ROLES = ("user", "assistant", "system", "tool")
 

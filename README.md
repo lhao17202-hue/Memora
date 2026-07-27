@@ -56,6 +56,7 @@ python -m memora --root .memora remember --type preference --name response-style
 python -m memora --root .memora remember --type preference --name response-style-json --description "Response style preference." --content "Prefer concise answers." --json
 python -m memora --root .memora list
 python -m memora --root .memora search "concise answers"
+python -m memora --root .memora context "pytest verification"
 python -m memora --root .memora show response-style
 python -m memora --root .memora update response-style --tag style --weight 8
 python -m memora --root .memora archive response-style
@@ -245,12 +246,12 @@ Memora separates extraction, relation recall, relation judgment, and storage:
 1. The external agent or extractor produces a structured `MemoryCandidate`.
 2. Memora rejects unsafe, transient, or noisy candidates before relation handling.
 3. If semantic write relations or LLM relation judging is enabled, Memora uses the configured embedding provider to find one likely existing target in the same type and scope.
-4. If an LLM relation judge is injected, Memora asks it to classify only that embedding hit as `none`, `duplicate`, `merge`, or `conflict`.
-5. Policy decides whether to create, update, reject, or require confirmation.
+4. If an LLM relation judge is injected, Memora asks it to classify only that embedding hit as `none`, `duplicate`, `merge`, `conflict`, or `supersede`.
+5. Policy decides whether to create, update, supersede, reject, or require confirmation.
 6. The selected local backend writes the `MemoryItem`.
 7. When RAG is enabled, the vector index is synced from the saved local item.
 
-Updates, conflict replacements, and LLM merges write through the same local update path and then refresh the vector index.
+Duplicates and merges update the target memory. High-confidence conflicts and `supersede` decisions archive the old memory, create a new memory with `supersedes=[old.id]`, remove the old memory from the vector index, and sync the new memory.
 
 `LLMMemoryRelationJudge` is provider-neutral. Any external client can be used if it implements `complete(messages) -> str` and returns JSON matching the relation decision schema:
 
@@ -350,10 +351,10 @@ Memora's policy-related configuration fields are active in the manager/runtime w
 - disabled auto-save returns `requires_confirmation`, not `rejected`.
 - `semantic_write_relations_enabled` enables embedding-backed write-time duplicate, merge, and conflict relation detection. It is disabled by default.
 - `semantic_relation_threshold`, `semantic_merge_threshold`, and `semantic_conflict_threshold` tune the similarity gates used before semantic write relations can affect policy decisions.
-- `llm_relation_judge_enabled` lets an injected `MemoryRelationJudge` refine an embedding hit into `none`, `duplicate`, `merge`, or `conflict`.
+- `llm_relation_judge_enabled` lets an injected `MemoryRelationJudge` refine an embedding hit into `none`, `duplicate`, `merge`, `conflict`, or `supersede`.
 - `llm_relation_confidence_threshold`, `llm_merge_confidence_threshold`, and `llm_conflict_auto_replace_threshold` control whether LLM relation decisions are accepted, merged, or allowed to auto-replace.
 - `require_confirmation_for_conflicts` controls whether detected semantic conflicts require confirmation when high-confidence replacement is not allowed.
-- `allow_high_confidence_conflict_replace` and `high_confidence_conflict_threshold` allow high-confidence semantic conflicts to update the target memory automatically.
+- `allow_high_confidence_conflict_replace` and `high_confidence_conflict_threshold` allow high-confidence semantic conflicts to supersede the target memory automatically.
 
 Manual writes remain allowed unless rejected by safety, transient-state, noisy-output, or semantic conflict policy.
 

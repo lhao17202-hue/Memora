@@ -123,6 +123,8 @@ class MemoryManager:
             action = "created"
         elif decision.action == "update":
             action = "updated"
+        elif decision.action == "supersede":
+            action = "superseded"
         elif decision.action == "reject":
             action = "rejected"
         elif decision.action == "ask_user":
@@ -296,6 +298,52 @@ class MemoryManager:
         validate_memory_item(existing)
         return self.memory_store.update_memory(existing)
 
+    def _same_scope(self, left: MemoryItem, right: MemoryItem | MemoryCandidate) -> bool:
+        return (
+            left.user_id == right.user_id
+            and left.project_id == right.project_id
+            and left.workspace_id == right.workspace_id
+        )
+
+    def _ensure_supersede_create_name(self, decision: MemoryCandidate, existing: MemoryItem) -> None:
+        base_name = slugify(decision.name or decision.description)
+        scoped_names = {
+            memory.name
+            for memory in self.memory_store.list_memories(include_archived=True)
+            if self._same_scope(memory, decision) and memory.id != existing.id
+        }
+        if base_name and base_name != existing.name and base_name not in scoped_names:
+            decision.name = base_name
+            return
+
+        stem = base_name or existing.name or "memory"
+        if stem == existing.name:
+            stem = f"{stem}-replacement"
+        suffix = existing.id.removeprefix("mem_")[:8] or uuid.uuid4().hex[:8]
+        candidate_name = slugify(f"{stem}-supersedes-{suffix}")
+        counter = 2
+        while candidate_name == existing.name or candidate_name in scoped_names:
+            candidate_name = slugify(f"{stem}-supersedes-{suffix}-{counter}")
+            counter += 1
+        decision.name = candidate_name
+
+    def _supersede_memory(self, existing: MemoryItem, decision: MemoryCandidate) -> MemoryItem:
+        self._ensure_supersede_create_name(decision, existing)
+        item = self._new_memory_from_candidate(decision)
+        if existing.id not in item.supersedes:
+            item.supersedes.append(existing.id)
+        if existing.id not in item.related:
+            item.related.append(existing.id)
+        validate_memory_item(item)
+        saved = self.memory_store.save_memory(item)
+
+        existing.status = "archived"
+        existing.updated_at = now_utc()
+        archived = self.memory_store.update_memory(existing)
+        self._delete_rag_memory(archived.id)
+        self._sync_rag_memory(saved)
+        return saved
+
     def evaluate_memory_candidate(self, candidate: MemoryCandidate) -> MemoryWriteResult:
         candidate = self._resolve_candidate_defaults(candidate)
         validate_memory_candidate(candidate)
@@ -320,6 +368,13 @@ class MemoryManager:
             rag_error_start = len(self._rag_sync_errors)
             self._sync_rag_memory(updated)
             return self._write_result_from_decision(decision, memory=updated, rag_sync_errors=self._rag_sync_errors_since(rag_error_start))
+        if decision.action == "supersede" and decision.target_memory_id:
+            existing = self.memory_store.get_memory(decision.target_memory_id)
+            if existing is None:
+                raise MemoryNotFoundError(f"memory not found: {decision.target_memory_id}")
+            rag_error_start = len(self._rag_sync_errors)
+            saved = self._supersede_memory(existing, decision)
+            return self._write_result_from_decision(decision, memory=saved, rag_sync_errors=self._rag_sync_errors_since(rag_error_start))
         return self._write_result_from_decision(decision)
 
     def confirm_memory_candidate(
@@ -339,9 +394,9 @@ class MemoryManager:
         if self.policy.is_noisy_output(candidate.content):
             raise MemoryPolicyError("memory rejected: noisy_output")
         confirmed_action = action or candidate.suggested_action or ("update" if (target_memory_id or candidate.target_memory_id) else "create")
-        if confirmed_action == "update" and (target_memory_id or candidate.target_memory_id) is None:
-            raise MemoryValidationError("target_memory_id is required for confirmed update")
-        if confirmed_action == "update" and self.memory_store.get_memory(target_memory_id or candidate.target_memory_id) is None:
+        if confirmed_action in {"update", "supersede"} and (target_memory_id or candidate.target_memory_id) is None:
+            raise MemoryValidationError("target_memory_id is required for confirmed update or supersede")
+        if confirmed_action in {"update", "supersede"} and self.memory_store.get_memory(target_memory_id or candidate.target_memory_id) is None:
             raise MemoryNotFoundError(f"memory not found: {target_memory_id or candidate.target_memory_id}")
         fresh = replace(candidate, action="create", target_memory_id=None, target_updated_at=None, suggested_action=None, reason="")
         fresh = self._evaluate_candidate_decision(fresh)
@@ -356,12 +411,17 @@ class MemoryManager:
                 fresh.action = "ask_user"
                 fresh.reason = "confirmation_state_changed"
                 return self._write_result_from_decision(fresh)
+        elif fresh.action == "supersede":
+            if candidate.suggested_action != "supersede" or fresh.target_memory_id != candidate.target_memory_id or fresh.target_updated_at != candidate.target_updated_at:
+                fresh.action = "ask_user"
+                fresh.reason = "confirmation_state_changed"
+                return self._write_result_from_decision(fresh)
         elif fresh.action == "create":
             if candidate.suggested_action != "create" or candidate.target_memory_id is not None:
                 fresh.action = "ask_user"
                 fresh.reason = "confirmation_state_changed"
                 return self._write_result_from_decision(fresh)
-        if confirmed_action not in {"create", "update"}:
+        if confirmed_action not in {"create", "update", "supersede"}:
             raise MemoryValidationError(f"unsupported confirmation action: {confirmed_action}")
         if confirmed_action != fresh.suggested_action:
             raise MemoryValidationError(f"confirmed action must match current suggested action: {fresh.suggested_action}")
@@ -381,10 +441,14 @@ class MemoryManager:
             self._sync_rag_memory(saved)
             return self._write_result_from_decision(confirmed, memory=saved, rag_sync_errors=self._rag_sync_errors_since(rag_error_start))
         if confirmed.target_memory_id is None:
-            raise MemoryValidationError("target_memory_id is required for confirmed update")
+            raise MemoryValidationError("target_memory_id is required for confirmed update or supersede")
         existing = self.memory_store.get_memory(confirmed.target_memory_id)
         if existing is None:
             raise MemoryNotFoundError(f"memory not found: {confirmed.target_memory_id}")
+        if confirmed_action == "supersede":
+            rag_error_start = len(self._rag_sync_errors)
+            saved = self._supersede_memory(existing, confirmed)
+            return self._write_result_from_decision(confirmed, memory=saved, rag_sync_errors=self._rag_sync_errors_since(rag_error_start))
         updated = self._apply_candidate_update(existing, confirmed)
         rag_error_start = len(self._rag_sync_errors)
         self._sync_rag_memory(updated)
@@ -433,6 +497,11 @@ class MemoryManager:
             updated = self._apply_candidate_update(existing, decision)
             self._sync_rag_memory(updated)
             return updated
+        if decision.action == "supersede" and decision.target_memory_id:
+            existing = self.memory_store.get_memory(decision.target_memory_id)
+            if existing is None:
+                raise ValueError("target memory missing for supersede")
+            return self._supersede_memory(existing, decision)
 
         item = self._new_memory_from_candidate(decision)
         saved = self.memory_store.save_memory(item)

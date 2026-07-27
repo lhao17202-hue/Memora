@@ -54,10 +54,12 @@ The agent should not pass:
 1. The agent extracts a candidate from a conversation, task summary, or trace summary.
 2. Memora fills defaults, validates the candidate, and applies safety policy.
 3. If relation handling is enabled, Memora uses embeddings to find one possible target memory in the same type and scope.
-4. If `llm_relation_judge_enabled` and a judge is injected, Memora asks the judge to classify that target as `none`, `duplicate`, `merge`, or `conflict`.
+4. If `llm_relation_judge_enabled` and a judge is injected, Memora asks the judge to classify that target as `none`, `duplicate`, `merge`, `conflict`, or `supersede`.
 5. Policy chooses the write action.
 6. Memora writes the selected local backend.
 7. If RAG is enabled, Memora updates the vector index from the saved local item.
+
+Duplicate and merge writes update the target memory. High-confidence conflicts and explicit `supersede` decisions archive the old memory, create a new memory with `supersedes=[old.id]`, delete the old vector entry, and sync the new vector entry.
 
 ## Write Result Diagnostics
 
@@ -114,6 +116,7 @@ Rules:
 - Use `duplicate` when the candidate says the same durable fact.
 - Use `merge` when the candidate refines or extends the target without contradiction.
 - Use `conflict` when the candidate invalidates or contradicts the target.
+- Use `supersede` when the candidate explicitly replaces the target and the old memory should be archived.
 - `merge` decisions must include merged `description` and `content`.
 
 If the judge fails or returns invalid JSON, Memora falls back to deterministic embedding relation behavior.
@@ -159,6 +162,7 @@ The CLI is a local debugging surface. It can:
 
 - Initialize stores.
 - Save and search memories.
+- Build typed agent context with `context`.
 - Simulate an agent-extracted candidate with `remember`.
 - Emit a machine-readable `MemoryWriteResult` with `remember --json`.
 - Confirm a pending candidate with `confirm`.
