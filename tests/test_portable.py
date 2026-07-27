@@ -97,6 +97,39 @@ def test_import_memories_reports_item_errors_and_continues(tmp_path: Path):
     assert manager.memory_store.get_memory("good") is not None
 
 
+def test_import_memories_rejects_bool_numeric_and_string_list_fields(tmp_path: Path):
+    manager = manager_for(tmp_path)
+    path = tmp_path / "bad-fields.json"
+    path.write_text(
+        json.dumps(
+            {
+                "format": EXPORT_FORMAT,
+                "memories": [
+                    {
+                        "id": "mem_bad",
+                        "name": "bad",
+                        "description": "bad fields",
+                        "type": "preference",
+                        "content": "bad content",
+                        "tags": "preference",
+                        "confidence": True,
+                        "weight": False,
+                        "access_count": True,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = manager.import_memories(path)
+
+    assert report["imported"] == 0
+    assert len(report["errors"]) == 1
+    assert "tags" in report["errors"][0]["error"]
+    assert manager.list_memories() == []
+
+
 def test_verify_memories_reports_index_health_and_rebuild_repairs(tmp_path: Path):
     manager = manager_for(tmp_path)
     manager.save_memory("preference", "content", "description", name="language")

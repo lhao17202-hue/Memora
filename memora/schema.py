@@ -152,13 +152,28 @@ def validate_suggested_action(value: str) -> None:
 
 
 def _validate_weight(weight: int) -> None:
-    if not isinstance(weight, int) or weight < 1 or weight > 10:
+    if isinstance(weight, bool) or not isinstance(weight, int) or weight < 1 or weight > 10:
         raise MemoryValidationError("weight must be an integer from 1 to 10")
 
 
 def _validate_confidence(confidence: float) -> None:
-    if not isinstance(confidence, int | float) or confidence < 0.0 or confidence > 1.0:
+    if isinstance(confidence, bool) or not isinstance(confidence, int | float) or confidence < 0.0 or confidence > 1.0:
         raise MemoryValidationError("confidence must be from 0.0 to 1.0")
+
+
+def _validate_string_list(values: list[str], field_name: str) -> None:
+    if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
+        raise MemoryValidationError(f"{field_name} must be a list of strings")
+
+
+def _validate_access_count(access_count: int) -> None:
+    if isinstance(access_count, bool) or not isinstance(access_count, int) or access_count < 0:
+        raise MemoryValidationError("access_count must be an integer >= 0")
+
+
+def _validate_positive_int(value: int, field_name: str) -> None:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise MemoryValidationError(f"{field_name} must be an integer > 0")
 
 
 def validate_memory_item(item: MemoryItem) -> None:
@@ -168,10 +183,12 @@ def validate_memory_item(item: MemoryItem) -> None:
     _require_non_empty_string(item.content, "memory content")
     validate_memory_type(item.type)
     validate_memory_status(item.status)
+    _validate_string_list(item.tags, "tags")
+    _validate_string_list(item.supersedes, "supersedes")
+    _validate_string_list(item.related, "related")
     _validate_weight(item.weight)
     _validate_confidence(item.confidence)
-    if item.access_count < 0:
-        raise MemoryValidationError("access_count must be >= 0")
+    _validate_access_count(item.access_count)
 
 
 def validate_memory_candidate(candidate: MemoryCandidate) -> None:
@@ -185,18 +202,19 @@ def validate_memory_candidate(candidate: MemoryCandidate) -> None:
     if candidate.weight is not None:
         _validate_weight(candidate.weight)
     _validate_confidence(candidate.confidence)
+    _validate_string_list(candidate.tags, "tags")
 
 
 def validate_memory_query(query: MemoryQuery) -> None:
     if not isinstance(query.query, str):
         raise MemoryValidationError("query must be a string")
-    if query.top_k <= 0:
-        raise MemoryValidationError("top_k must be > 0")
-    if query.max_tokens <= 0:
-        raise MemoryValidationError("max_tokens must be > 0")
+    _validate_positive_int(query.top_k, "top_k")
+    _validate_positive_int(query.max_tokens, "max_tokens")
     if query.memory_types:
         for memory_type in query.memory_types:
             validate_memory_type(memory_type)
+    if query.tags is not None:
+        _validate_string_list(query.tags, "tags")
 
 
 def validate_session_message(message: SessionMessage) -> None:

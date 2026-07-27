@@ -112,7 +112,7 @@ class SQLiteMemoryStore(MemoryCandidateStore):
             user_id=row["user_id"] or "default",
             project_id=row["project_id"],
             workspace_id=row["workspace_id"],
-            tags=list(json.loads(row["tags_json"] or "[]")),
+            tags=json.loads(row["tags_json"] or "[]"),
             source=row["source"] or "unknown",
             confidence=float(row["confidence"]),
             weight=int(row["weight"]),
@@ -122,8 +122,8 @@ class SQLiteMemoryStore(MemoryCandidateStore):
             last_accessed_at=_dt_from_text(row["last_accessed_at"]),
             access_count=int(row["access_count"] or 0),
             expires_at=_dt_from_text(row["expires_at"]),
-            supersedes=list(json.loads(row["supersedes_json"] or "[]")),
-            related=list(json.loads(row["related_json"] or "[]")),
+            supersedes=json.loads(row["supersedes_json"] or "[]"),
+            related=json.loads(row["related_json"] or "[]"),
         )
         validate_memory_item(item)
         return item

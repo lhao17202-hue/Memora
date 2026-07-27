@@ -210,17 +210,21 @@ def _parse_extracted_memory(raw_memory: object) -> tuple[ExtractedMemory | None,
         tags = []
 
     confidence = raw_memory.get("confidence", 1.0)
-    if not isinstance(confidence, int | float) or confidence < 0.0 or confidence > 1.0:
+    if isinstance(confidence, bool) or not isinstance(confidence, int | float) or confidence < 0.0 or confidence > 1.0:
         errors.append("confidence_must_be_0_to_1")
         confidence = 1.0
     confidence = float(confidence)
 
     weight = raw_memory.get("weight")
-    if weight is not None and (not isinstance(weight, int) or weight < 1 or weight > 10):
+    if weight is not None and (isinstance(weight, bool) or not isinstance(weight, int) or weight < 1 or weight > 10):
         errors.append("weight_must_be_1_to_10")
         weight = None
 
-    requires_confirmation = bool(raw_memory.get("requires_confirmation", False)) or confidence < LOW_CONFIDENCE_THRESHOLD
+    requires_confirmation = raw_memory.get("requires_confirmation", False)
+    if not isinstance(requires_confirmation, bool):
+        errors.append("requires_confirmation_must_be_boolean")
+        requires_confirmation = False
+    requires_confirmation = requires_confirmation or confidence < LOW_CONFIDENCE_THRESHOLD
     reason = raw_memory.get("reason", "")
     if reason is None:
         reason = ""

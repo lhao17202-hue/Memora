@@ -188,6 +188,31 @@ def test_memory_store_rejects_invalid_datetime_frontmatter(tmp_path: Path):
         store.list_memories()
 
 
+def test_memory_store_rejects_bool_numeric_and_string_list_frontmatter(tmp_path: Path):
+    store = FileMemoryStore(MemoryConfig(root_dir=str(tmp_path / ".memora")))
+    store.init_storage()
+    path = store.memories_dir / "bad-fields.md"
+    path.write_text(
+        "---\n"
+        "name: bad\n"
+        "description: bad fields\n"
+        "metadata:\n"
+        "  id: mem_bad\n"
+        "  type: preference\n"
+        "  status: active\n"
+        "  weight: true\n"
+        "  confidence: true\n"
+        "  access_count: true\n"
+        "  tags: preference\n"
+        "---\n\n"
+        "content\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(MemoryValidationError, match="tags"):
+        store.list_memories()
+
+
 def test_session_store_rejects_invalid_session_id(tmp_path: Path):
     store = FileSessionStore(MemoryConfig(root_dir=str(tmp_path / ".memora")))
 

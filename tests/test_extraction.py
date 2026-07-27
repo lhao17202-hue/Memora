@@ -110,6 +110,54 @@ def test_low_confidence_extracted_memory_requires_confirmation():
     assert artifact.memories[0].requires_confirmation is True
 
 
+def test_parse_extraction_json_rejects_boolean_numeric_fields():
+    artifact = parse_extraction_json(
+        json.dumps(
+            {
+                "should_remember": True,
+                "memories": [
+                    {
+                        "type": "preference",
+                        "name": "bad-fields",
+                        "description": "Bad numeric fields.",
+                        "content": "Bad numeric fields.",
+                        "confidence": True,
+                        "weight": False,
+                    }
+                ],
+            }
+        )
+    )
+
+    assert artifact.memories == []
+    assert artifact.errors == [
+        "memories[0].confidence_must_be_0_to_1",
+        "memories[0].weight_must_be_1_to_10",
+    ]
+
+
+def test_parse_extraction_json_requires_boolean_confirmation_flag():
+    artifact = parse_extraction_json(
+        json.dumps(
+            {
+                "should_remember": True,
+                "memories": [
+                    {
+                        "type": "preference",
+                        "name": "bad-confirmation",
+                        "description": "Bad confirmation flag.",
+                        "content": "Bad confirmation flag.",
+                        "requires_confirmation": "false",
+                    }
+                ],
+            }
+        )
+    )
+
+    assert artifact.memories == []
+    assert artifact.errors == ["memories[0].requires_confirmation_must_be_boolean"]
+
+
 def test_extracted_memory_converts_to_scoped_candidate_with_session_tag():
     artifact = parse_extraction_json(
         json.dumps(

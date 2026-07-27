@@ -104,11 +104,42 @@ def test_validate_memory_item_rejects_invalid_status():
 def test_validate_memory_item_rejects_invalid_weight_and_confidence():
     overweight = MemoryItem(id="mem_1", name="language", description="desc", type="preference", content="content", weight=11)
     overconfident = MemoryItem(id="mem_2", name="style", description="desc", type="preference", content="content", confidence=1.1)
+    boolean_weight = MemoryItem(id="mem_3", name="weight", description="desc", type="preference", content="content", weight=True)
+    boolean_confidence = MemoryItem(id="mem_4", name="confidence", description="desc", type="preference", content="content", confidence=True)
 
     with pytest.raises(MemoryValidationError, match="weight"):
         validate_memory_item(overweight)
     with pytest.raises(MemoryValidationError, match="confidence"):
         validate_memory_item(overconfident)
+    with pytest.raises(MemoryValidationError, match="weight"):
+        validate_memory_item(boolean_weight)
+    with pytest.raises(MemoryValidationError, match="confidence"):
+        validate_memory_item(boolean_confidence)
+
+
+def test_validate_memory_item_rejects_invalid_list_fields_and_access_count():
+    bad_tags = MemoryItem(id="mem_1", name="tags", description="desc", type="preference", content="content", tags="tag")
+    bad_supersedes = MemoryItem(id="mem_2", name="supersedes", description="desc", type="preference", content="content", supersedes=[1])
+    bad_related = MemoryItem(id="mem_3", name="related", description="desc", type="preference", content="content", related="mem_1")
+    bad_access_count = MemoryItem(id="mem_4", name="access", description="desc", type="preference", content="content", access_count=True)
+
+    with pytest.raises(MemoryValidationError, match="tags"):
+        validate_memory_item(bad_tags)
+    with pytest.raises(MemoryValidationError, match="supersedes"):
+        validate_memory_item(bad_supersedes)
+    with pytest.raises(MemoryValidationError, match="related"):
+        validate_memory_item(bad_related)
+    with pytest.raises(MemoryValidationError, match="access_count"):
+        validate_memory_item(bad_access_count)
+
+
+def test_validate_memory_candidate_and_query_reject_invalid_tags():
+    candidate = MemoryCandidate(action="create", name="language", description="desc", type="preference", content="content", tags="tag")
+
+    with pytest.raises(MemoryValidationError, match="tags"):
+        validate_memory_candidate(candidate)
+    with pytest.raises(MemoryValidationError, match="tags"):
+        validate_memory_query(MemoryQuery(query="content", tags="tag"))
 
 
 def test_validate_memory_candidate_rejects_invalid_action():
@@ -123,6 +154,10 @@ def test_validate_memory_query_rejects_invalid_limits():
         validate_memory_query(MemoryQuery(query="中文", top_k=0))
     with pytest.raises(MemoryValidationError, match="max_tokens"):
         validate_memory_query(MemoryQuery(query="中文", max_tokens=0))
+    with pytest.raises(MemoryValidationError, match="top_k"):
+        validate_memory_query(MemoryQuery(query="中文", top_k=True))
+    with pytest.raises(MemoryValidationError, match="max_tokens"):
+        validate_memory_query(MemoryQuery(query="中文", max_tokens="100"))
 
 
 def test_validate_session_message_rejects_invalid_role():
