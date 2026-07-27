@@ -94,6 +94,41 @@ Rules:
 
 If the judge fails or returns invalid JSON, Memora falls back to deterministic embedding relation behavior.
 
+## OpenAI Adapter
+
+OpenAI is supported through normal dependency injection. Memora does not import or configure the OpenAI SDK in the core package.
+
+Example:
+
+```python
+from openai import OpenAI
+
+from examples.openai_memory_clients import OpenAIExtractionClient, OpenAIRelationClient
+from memora.extraction import LLMMemoryExtractor
+from memora.relations import LLMMemoryRelationJudge
+from memora.runtime import MemoryRuntime
+
+
+client = OpenAI()
+runtime = MemoryRuntime(
+    extractor=LLMMemoryExtractor(OpenAIExtractionClient(client, "gpt-5.6")),
+    relation_judge=LLMMemoryRelationJudge(OpenAIRelationClient(client, "gpt-5.6")),
+)
+```
+
+Recommended OpenAI settings:
+
+- Use the Responses API for new examples and integrations.
+- Use structured JSON output for extraction and relation decisions.
+- Keep the model configurable with `OPENAI_MODEL`.
+- Treat `OPENAI_API_KEY` as an environment variable, not a Memora config field.
+- Keep conflict auto-replace thresholds conservative until the deployment has enough audit data.
+
+Runnable examples:
+
+- `examples/openai_llm_relation_runtime.py`
+- `examples/openai_full_memory_turn_runtime.py`
+
 ## Recommended Modes
 
 Pure local:

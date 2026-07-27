@@ -288,6 +288,21 @@ runtime = MemoryRuntime(
 )
 ```
 
+OpenAI can be used with the same adapter shape. See `examples/openai_memory_clients.py` for a Responses API adapter that requests structured JSON output for both extraction and relation judging:
+
+```python
+from openai import OpenAI
+
+from examples.openai_memory_clients import OpenAIRelationClient
+from memora.relations import LLMMemoryRelationJudge
+
+
+client = OpenAI()
+judge = LLMMemoryRelationJudge(OpenAIRelationClient(client, "gpt-5.6"))
+```
+
+Production OpenAI integrations should prefer structured outputs, keep the relation prompt deterministic, and set conservative conflict replacement thresholds until the deployment has reviewed enough write logs. If OpenAI is unavailable or returns invalid JSON, Memora falls back to the deterministic embedding relation behavior.
+
 For CLI debugging, use `remember --json` to simulate an agent-extracted candidate memory and `confirm` to write a returned pending candidate after user approval:
 
 ```bash
@@ -357,6 +372,24 @@ python examples/llm_relation_runtime.py
 ```
 
 The demo uses scripted local relation responses to show merge, high-confidence conflict replacement, and fallback behavior without requiring an API key.
+
+Run the OpenAI relation judge demo:
+
+```bash
+pip install openai
+set OPENAI_API_KEY=your-key
+python examples/openai_llm_relation_runtime.py
+```
+
+Run the full OpenAI memory-turn demo:
+
+```bash
+pip install openai
+set OPENAI_API_KEY=your-key
+python examples/openai_full_memory_turn_runtime.py
+```
+
+Both OpenAI examples use the Responses API through a small adapter in `examples/openai_memory_clients.py`. Override the default model with `OPENAI_MODEL` if needed.
 
 ## MVP boundaries
 
