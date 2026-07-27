@@ -155,6 +155,7 @@ Runnable examples:
 
 - `examples/openai_llm_relation_runtime.py`
 - `examples/openai_full_memory_turn_runtime.py`
+- `examples/openai_memory_system_runtime.py`
 
 ## CLI Debugging Boundary
 

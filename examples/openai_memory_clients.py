@@ -56,7 +56,7 @@ RELATION_DECISION_JSON_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
     "required": ["kind", "confidence", "reason", "merged"],
     "properties": {
-        "kind": {"type": "string", "enum": ["none", "duplicate", "merge", "conflict"]},
+        "kind": {"type": "string", "enum": ["none", "duplicate", "merge", "conflict", "supersede"]},
         "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
         "reason": {"type": "string"},
         "merged": {

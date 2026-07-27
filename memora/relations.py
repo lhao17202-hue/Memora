@@ -13,14 +13,16 @@ from .errors import MemoryValidationError
 from .schema import MemoryCandidate, MemoryItem, MemoryRelation, MemoryRelationDecision
 from .vector_store import cosine_similarity
 
-RELATION_JUDGE_SYSTEM_PROMPT = """Judge whether an extracted candidate memory changes, duplicates, merges with, conflicts with, or is unrelated to an existing memory.
+RELATION_JUDGE_SYSTEM_PROMPT = """Judge whether one extracted candidate memory changes, duplicates, merges with, conflicts with, supersedes, or is unrelated to one existing memory.
 Return JSON only. Do not include markdown.
 Allowed kind values: none, duplicate, merge, conflict, supersede.
 Use "none" when the candidate should be written as a separate memory.
 Use "duplicate" when the candidate says the same durable fact.
 Use "merge" when the candidate refines or extends the existing memory without contradiction.
-Use "conflict" when the candidate invalidates or contradicts the existing memory.
+Use "conflict" when the candidate invalidates or contradicts the existing memory but replacement intent is unclear.
 Use "supersede" when the candidate explicitly replaces the existing memory and the old memory should be archived.
+Judge only the candidate and existing memory provided by the runtime. Do not invent another target memory.
+Never use "merge" for contradictory facts. Prefer "conflict" or "supersede" for changed preferences, obsolete project facts, or "from now on" instructions.
 For merge, include a "merged" object with name, description, content, and tags.
 The JSON shape is:
 {"kind":"merge","confidence":0.86,"reason":"brief reason","merged":{"name":"...","description":"...","content":"...","tags":["..."]}}"""

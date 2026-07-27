@@ -1,6 +1,6 @@
 from memora.config import MemoryConfig
 from memora.errors import MemoryValidationError
-from memora.relations import LLMMemoryRelationJudge, SemanticMemoryRelationResolver, parse_relation_decision_json
+from memora.relations import RELATION_JUDGE_SYSTEM_PROMPT, LLMMemoryRelationJudge, SemanticMemoryRelationResolver, parse_relation_decision_json
 from memora.schema import MemoryCandidate, MemoryItem
 
 
@@ -194,3 +194,9 @@ def test_llm_memory_relation_judge_uses_json_prompt_and_parser():
     assert client.messages is not None
     assert client.messages[0]["role"] == "system"
     assert "candidate" in client.messages[1]["content"]
+
+
+def test_relation_prompt_describes_supersede_and_merge_boundary():
+    assert "supersede" in RELATION_JUDGE_SYSTEM_PROMPT
+    assert "old memory should be archived" in RELATION_JUDGE_SYSTEM_PROMPT
+    assert "Never use \"merge\" for contradictory facts" in RELATION_JUDGE_SYSTEM_PROMPT

@@ -30,6 +30,32 @@ def test_openai_full_turn_example_requires_api_key(monkeypatch):
     assert "Set OPENAI_API_KEY before running this example." in result.stderr
 
 
+def test_openai_memory_system_example_requires_api_key(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    result = subprocess.run(
+        [sys.executable, "examples/openai_memory_system_runtime.py"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "Set OPENAI_API_KEY before running this example." in result.stderr
+
+
+def test_openai_relation_schema_supports_supersede():
+    from pathlib import Path
+    import importlib.util
+
+    module_path = Path("examples/openai_memory_clients.py")
+    spec = importlib.util.spec_from_file_location("openai_memory_clients", module_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    assert "supersede" in module.RELATION_DECISION_JSON_SCHEMA["properties"]["kind"]["enum"]
+
+
 def test_llm_relation_runtime_example_runs_successfully():
     result = subprocess.run(
         [sys.executable, "examples/llm_relation_runtime.py"],

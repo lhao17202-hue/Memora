@@ -390,7 +390,15 @@ set OPENAI_API_KEY=your-key
 python examples/openai_full_memory_turn_runtime.py
 ```
 
-Both OpenAI examples use the Responses API through a small adapter in `examples/openai_memory_clients.py`. Override the default model with `OPENAI_MODEL` if needed.
+Run the full OpenAI-backed memory-system demo:
+
+```bash
+pip install openai
+set OPENAI_API_KEY=your-key
+python examples/openai_memory_system_runtime.py
+```
+
+The memory-system demo shows typed context injection before a task, task-end LLM extraction, relation judging, local backend writes, RAG sync, and `supersedes` audit output. OpenAI examples use the Responses API through a small adapter in `examples/openai_memory_clients.py`. Override the default model with `OPENAI_MODEL` if needed.
 
 ## MVP Boundaries
 

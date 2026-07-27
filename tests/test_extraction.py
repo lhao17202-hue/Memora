@@ -211,6 +211,14 @@ def test_llm_memory_extractor_uses_json_only_prompt_and_parses_response():
     assert client.messages[1] == {"role": "user", "content": "Please be concise."}
 
 
+def test_extraction_prompt_describes_memora_memory_boundary():
+    assert "session or task end" in EXTRACTION_SYSTEM_PROMPT
+    assert "MemoryCandidate" in EXTRACTION_SYSTEM_PROMPT
+    assert "not final MemoryItem" in EXTRACTION_SYSTEM_PROMPT
+    assert "tool: durable tool-use lessons summarized from traces" in EXTRACTION_SYSTEM_PROMPT
+    assert "Current task state belongs to short-term memory" in EXTRACTION_SYSTEM_PROMPT
+
+
 def test_extraction_prompt_messages_accept_mapping_messages():
     messages = extraction_prompt_messages([{"role": "assistant", "content": "Done."}])
 

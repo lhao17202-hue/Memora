@@ -10,9 +10,32 @@ from .schema import MemoryCandidate, SessionMessage, validate_memory_candidate, 
 
 LOW_CONFIDENCE_THRESHOLD = 0.5
 
-EXTRACTION_SYSTEM_PROMPT = """Extract durable long-term memories from the conversation.
+EXTRACTION_SYSTEM_PROMPT = """Extract durable long-term memory candidates at session or task end.
 Return JSON only. Do not include markdown.
-Use only these memory types: preference, project, episodic, reflective, tool, knowledge, general.
+
+Memora stores MemoryCandidate objects first, not final MemoryItem records. The
+runtime will validate candidates, apply safety policy, resolve relations, ask
+for confirmation when needed, and then write to the local backend.
+
+Use only these memory types:
+- preference: user identity, stable preferences, answer style, personal constraints.
+- project: durable project requirements, tech stack, architecture, repo conventions.
+- episodic: important dated interaction events or decisions worth recalling later.
+- reflective: reusable lessons from successes, failures, reviews, or debugging.
+- tool: durable tool-use lessons summarized from traces, not raw tool logs.
+- knowledge: stable external/reference knowledge that was intentionally imported.
+- general: durable memory that is useful but does not fit the other types.
+
+Remember only durable information. Do not remember secrets, raw credentials,
+full transcripts, raw stdout/stderr, stack traces, temporary task progress,
+speculation, or one-turn plans. Current task state belongs to short-term memory.
+
+Use stable short kebab-case names. Keep description and content concise,
+auditable, and evidence-backed. Prefer fewer high-quality memories over many
+small fragments. Set requires_confirmation=true for low confidence, sensitive
+user preferences, or uncertain facts. Set confidence below 0.5 when the memory
+is plausible but weakly supported.
+
 If nothing should be remembered, return {"should_remember": false, "memories": []}.
 If something should be remembered, return {"should_remember": true, "memories": [...]}.
 Each memory must include: type, name, description, content.
