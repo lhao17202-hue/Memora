@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 import uuid
 from dataclasses import replace
@@ -29,7 +30,8 @@ from .schema import (
 from .session import SessionService
 from .sqlite_store import SQLiteMemoryStore
 from .stores import FileMemoryStore, FileSessionStore, MemoryCandidateStore, MemoryStore, SessionStore
-from .utils import now_utc, slugify
+from .taxonomy import PINNED_CONTEXT_TYPES, configured_default_weight
+from .utils import estimate_tokens, now_utc, slugify
 
 
 class MemoryManager:
@@ -120,19 +122,7 @@ class MemoryManager:
         )
 
     def _default_weight_for_type(self, memory_type: str) -> int:
-        if memory_type == "preference":
-            return self.config.default_preference_weight
-        if memory_type == "episodic":
-            return self.config.default_episodic_weight
-        if memory_type == "reflective":
-            return self.config.default_reflective_weight
-        if memory_type == "tool":
-            return self.config.default_tool_weight
-        if memory_type == "knowledge":
-            return self.config.default_knowledge_weight
-        if memory_type == "general":
-            return self.config.default_general_weight
-        return self.config.default_project_weight
+        return configured_default_weight(memory_type, self.config)
 
     def _resolve_candidate_defaults(self, candidate: MemoryCandidate) -> MemoryCandidate:
         if candidate.weight is None:
@@ -339,6 +329,54 @@ class MemoryManager:
 
     def _query_needs_full_scan_fallback(self, query: MemoryQuery) -> bool:
         return bool(re.search(r"[一-鿿]", query.query))
+
+    def _memory_context_result(self, memory: MemoryItem, reason: str) -> MemorySearchResult:
+        importance_score = min(max(memory.weight, 1), 10) / 10
+        recency_score = self.retriever._recency_score(memory)
+        access_score = min(math.log1p(memory.access_count) / math.log1p(20), 1.0)
+        final_score = importance_score * 0.45 + recency_score * 0.35 + access_score * 0.20
+        return MemorySearchResult(
+            memory=memory,
+            similarity_score=0.0,
+            importance_score=importance_score,
+            recency_score=recency_score,
+            access_score=access_score,
+            final_score=final_score,
+            reason=reason,
+        )
+
+    def _limit_results_by_tokens(self, results: list[MemorySearchResult], max_tokens: int) -> list[MemorySearchResult]:
+        limited = []
+        used_tokens = 0
+        for result in results:
+            memory = result.memory
+            block_tokens = estimate_tokens(f"{memory.id} {memory.type} {memory.description} {memory.content}")
+            if used_tokens + block_tokens > max_tokens:
+                break
+            limited.append(result)
+            used_tokens += block_tokens
+        return limited
+
+    def retrieve_pinned_memories(
+        self,
+        user_id: str = "default",
+        project_id: str | None = None,
+        workspace_id: str | None = None,
+        top_k: int | None = None,
+        max_tokens: int | None = None,
+        include_archived: bool = False,
+    ) -> list[MemorySearchResult]:
+        scoped_memories = self._scoped_memories(user_id, project_id, workspace_id, include_archived=include_archived)
+        results = [
+            self._memory_context_result(memory, reason="pinned_context")
+            for memory in scoped_memories
+            if memory.type in PINNED_CONTEXT_TYPES
+            and memory.status != "deleted"
+            and (include_archived or memory.status == "active")
+        ]
+        results.sort(key=lambda result: result.final_score, reverse=True)
+        results = results[: top_k or self.config.max_retrieved_memories]
+        return self._limit_results_by_tokens(results, max_tokens or self.config.max_memory_prompt_tokens)
 
     def _candidate_memories(self, query: MemoryQuery) -> list[MemoryItem]:
         scoped_memories = self._scoped_memories(query.user_id, query.project_id, query.workspace_id, query.include_archived)

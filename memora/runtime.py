@@ -5,6 +5,7 @@ from __future__ import annotations
 from .config import MemoryConfig
 from .manager import MemoryManager
 from .schema import MemoryCandidate, MemoryItem, MemorySearchResult, MemoryWriteResult, SessionMessage
+from .taxonomy import ON_DEMAND_CONTEXT_TYPES
 
 
 class MemoryRuntime:
@@ -22,6 +23,80 @@ class MemoryRuntime:
     def build_context(self, query: str, **kwargs) -> str:
         results = self.retrieve_context(query, **kwargs)
         return self.manager.format_memories_for_prompt(results=results)
+
+    def retrieve_pinned_context(
+        self,
+        user_id: str = "default",
+        project_id: str | None = None,
+        workspace_id: str | None = None,
+        top_k: int | None = None,
+        include_archived: bool = False,
+    ) -> list[MemorySearchResult]:
+        return self.manager.retrieve_pinned_memories(
+            user_id=user_id,
+            project_id=project_id,
+            workspace_id=workspace_id,
+            top_k=top_k,
+            include_archived=include_archived,
+        )
+
+    def build_pinned_context(self, **kwargs) -> str:
+        results = self.retrieve_pinned_context(**kwargs)
+        return self.manager.format_memories_for_prompt(results=results)
+
+    def retrieve_task_context(
+        self,
+        query: str,
+        user_id: str = "default",
+        project_id: str | None = None,
+        workspace_id: str | None = None,
+        memory_types: list[str] | None = None,
+        tags: list[str] | None = None,
+        top_k: int | None = None,
+        pinned_top_k: int | None = None,
+        include_pinned: bool = True,
+        include_archived: bool = False,
+        include_knowledge: bool = True,
+    ) -> list[MemorySearchResult]:
+        pinned_results = []
+        if include_pinned:
+            pinned_results = self.manager.retrieve_pinned_memories(
+                user_id=user_id,
+                project_id=project_id,
+                workspace_id=workspace_id,
+                top_k=pinned_top_k,
+                include_archived=include_archived,
+            )
+        retrieved_results = self.manager.retrieve_memory(
+            query=query,
+            user_id=user_id,
+            project_id=project_id,
+            workspace_id=workspace_id,
+            memory_types=memory_types or list(ON_DEMAND_CONTEXT_TYPES),
+            tags=tags,
+            top_k=top_k,
+            include_archived=include_archived,
+            include_knowledge=include_knowledge,
+        )
+        return self._merge_context_results(pinned_results, retrieved_results)
+
+    def build_task_context(self, query: str, **kwargs) -> str:
+        results = self.retrieve_task_context(query, **kwargs)
+        return self.manager.format_memories_for_prompt(results=results)
+
+    def _merge_context_results(
+        self,
+        pinned_results: list[MemorySearchResult],
+        retrieved_results: list[MemorySearchResult],
+    ) -> list[MemorySearchResult]:
+        merged = []
+        seen_ids = set()
+        for result in pinned_results + retrieved_results:
+            if result.memory.id in seen_ids:
+                continue
+            merged.append(result)
+            seen_ids.add(result.memory.id)
+        return merged
 
     def remember_message(self, session_id: str, role: str, content: str, user_id: str = "default") -> None:
         self.manager.append_message(user_id, session_id, SessionMessage(role=role, content=content))

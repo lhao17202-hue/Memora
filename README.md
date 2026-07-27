@@ -178,13 +178,23 @@ runtime.remember_message("session_1", "assistant", "建议做 runtime integratio
 runtime.remember_summary("session_1", "用户认可最简单的 runtime integration。")
 ```
 
-Minimal agent integration pattern:
+Recommended agent integration pattern:
 
-1. Retrieve memory context before the external agent call with `runtime.retrieve_context(...)` or `runtime.build_context(...)`.
-2. Store user and assistant messages with `runtime.remember_message(...)`.
-3. Let the external runtime, not Memora, extract candidate memories.
-4. Pass candidates to `runtime.remember_extracted(...)` so Memora can deterministically create, update, reject, or require confirmation.
-5. If `result.action == "requires_confirmation"`, ask the user before calling `runtime.confirm_memory_candidate(result.candidate)`.
+1. Build task context before the external agent call with `runtime.build_task_context(...)`.
+2. Memora automatically prepends pinned `preference` and `project` memories, then retrieves on-demand memories such as `tool` or `knowledge` by query and type.
+3. Store user and assistant messages with `runtime.remember_message(...)`.
+4. Let the external runtime, not Memora, extract candidate memories.
+5. Pass candidates to `runtime.remember_extracted(...)` so Memora can deterministically create, update, reject, or require confirmation.
+6. If `result.action == "requires_confirmation"`, ask the user before calling `runtime.confirm_memory_candidate(result.candidate)`.
+
+```python
+context = runtime.build_task_context(
+    "pytest failure after refactor",
+    memory_types=["tool", "knowledge"],
+)
+```
+
+Use `runtime.build_context(...)` only when you want the older query-only retrieval behavior without pinned context.
 
 On Windows PowerShell, if Chinese CLI output renders incorrectly, switch the console to UTF-8 before running examples:
 

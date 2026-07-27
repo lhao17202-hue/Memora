@@ -39,6 +39,44 @@ def test_build_context_returns_formatted_memory(tmp_path: Path):
     assert "用户偏好使用中文回答。" in context
 
 
+def test_build_pinned_context_returns_preference_and_project_without_query(tmp_path: Path):
+    runtime = make_runtime(tmp_path)
+    runtime.manager.save_memory("preference", "Prefer concise answers.", "response style", name="response-style")
+    runtime.manager.save_memory("project", "Project uses pytest.", "test framework", name="test-framework")
+    runtime.manager.save_memory("tool", "Use pytest -q.", "tool lesson", name="tool-lesson")
+
+    results = runtime.retrieve_pinned_context(top_k=10)
+    context = runtime.build_pinned_context(top_k=10)
+
+    assert [result.memory.type for result in results] == ["preference", "project"]
+    assert "Prefer concise answers." in context
+    assert "Project uses pytest." in context
+    assert "Use pytest -q." not in context
+
+
+def test_retrieve_task_context_combines_pinned_and_typed_on_demand_memories(tmp_path: Path):
+    runtime = make_runtime(tmp_path)
+    preference = runtime.manager.save_memory("preference", "Prefer concise answers.", "response style", name="response-style")
+    project = runtime.manager.save_memory("project", "Project uses pytest.", "test framework", name="test-framework")
+    tool = runtime.manager.save_memory("tool", "Use pytest -q after changes.", "pytest command", name="pytest-command")
+    runtime.manager.save_memory("knowledge", "pytest fixture docs.", "pytest docs", name="pytest-docs")
+
+    results = runtime.retrieve_task_context("pytest command", memory_types=["tool"], top_k=5, pinned_top_k=5)
+
+    assert [result.memory.id for result in results] == [preference.id, project.id, tool.id]
+    assert [result.reason for result in results[:2]] == ["pinned_context", "pinned_context"]
+
+
+def test_retrieve_task_context_can_skip_pinned_memories(tmp_path: Path):
+    runtime = make_runtime(tmp_path)
+    runtime.manager.save_memory("preference", "Prefer concise answers.", "response style", name="response-style")
+    tool = runtime.manager.save_memory("tool", "Use pytest -q after changes.", "pytest command", name="pytest-command")
+
+    results = runtime.retrieve_task_context("pytest command", memory_types=["tool"], include_pinned=False)
+
+    assert [result.memory.id for result in results] == [tool.id]
+
+
 def test_retrieve_context_and_mark_context_used_updates_access_count(tmp_path: Path):
     runtime = make_runtime(tmp_path)
     item = runtime.manager.save_memory(
@@ -170,6 +208,17 @@ def test_rag_runtime_uses_existing_top_level_api(tmp_path: Path):
     assert "用户偏好使用中文回答。" in context
     assert reloaded is not None
     assert reloaded.access_count == 1
+
+
+def test_rag_task_context_respects_typed_on_demand_filter(tmp_path: Path):
+    runtime = make_rag_runtime(tmp_path)
+    tool = runtime.manager.save_memory("tool", "shared retrieval marker", "tool lesson", name="tool-lesson")
+    runtime.manager.save_memory("knowledge", "shared retrieval marker", "knowledge note", name="knowledge-note")
+
+    results = runtime.retrieve_task_context("shared retrieval marker", memory_types=["tool"], include_pinned=False)
+
+    assert [result.memory.id for result in results] == [tool.id]
+    assert results[0].semantic_score > 0
 
 
 def test_runtime_remember_extracted_respects_disabled_auto_save(tmp_path: Path):

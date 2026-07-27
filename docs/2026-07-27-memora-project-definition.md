@@ -536,3 +536,12 @@ Memora 是一个 LLM-native、type-aware、local-first 的 agent 长期记忆系
 
 它用 LLM 从 session/task/trace 中抽取长期记忆，用 Markdown 或 SQLite 保存正式 `MemoryItem`，用类型策略决定哪些记忆每轮注入、哪些按需召回，并用 embedding + LLM relation classifier 处理重复、冲突、合并和替换。
 
+## Implementation Note: Runtime Context APIs
+
+Current runtime-facing context APIs:
+
+- `MemoryRuntime.build_pinned_context(...)`: formats stable pinned memories (`preference`, `project`) without requiring query text.
+- `MemoryRuntime.build_task_context(query, memory_types=[...])`: formats pinned context first, then appends typed on-demand retrieval results.
+- `MemoryRuntime.build_context(query)`: remains the compatibility path for query-only retrieval.
+
+RAG/vector search can enhance typed on-demand retrieval when enabled. Pinned context is loaded from the selected backend by scope and policy, not by semantic vector search.

@@ -555,3 +555,13 @@ python -m memora --root .memora-test context "继续实现记忆系统"
 - RAG 未开启时仍可工作。
 - RAG 开启时只是增强召回，不改变正式存储语义。
 
+## 9. Implementation Status: Typed Context Foundation
+
+Implemented in the second refactor pass:
+
+- `memora/taxonomy.py` is now the central source for memory types, default weights, half-life values, and pinned/on-demand context modes.
+- `MemoryManager.retrieve_pinned_memories(...)` retrieves `preference` and `project` memories without relying on query text.
+- `MemoryRuntime.retrieve_pinned_context(...)` and `MemoryRuntime.build_pinned_context(...)` expose pinned context to agent runtimes.
+- `MemoryRuntime.retrieve_task_context(...)` and `MemoryRuntime.build_task_context(...)` combine pinned context with typed on-demand retrieval.
+- Existing `retrieve_memory(...)`, `retrieve_context(...)`, and `build_context(...)` remain available as query-only compatibility APIs.
+- RAG remains an optional retrieval enhancement and is not used for pinned context.

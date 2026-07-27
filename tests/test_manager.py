@@ -73,6 +73,46 @@ def test_save_retrieve_and_format_memory(tmp_path: Path):
     assert "用户偏好使用中文回答。" in formatted
 
 
+def test_retrieve_pinned_memories_returns_preference_and_project_without_query(tmp_path: Path):
+    manager = manager_for(tmp_path)
+    manager.init_storage()
+    manager.save_memory("tool", "Use pytest -q for verification.", "tool lesson", name="tool-lesson", weight=10)
+    project = manager.save_memory("project", "Project uses Python.", "project stack", name="project-stack", weight=8)
+    preference = manager.save_memory("preference", "Prefer concise answers.", "response style", name="response-style", weight=9)
+
+    results = manager.retrieve_pinned_memories(top_k=10)
+
+    assert [result.memory.id for result in results] == [preference.id, project.id]
+    assert {result.reason for result in results} == {"pinned_context"}
+
+
+def test_retrieve_pinned_memories_respects_scope_and_status(tmp_path: Path):
+    manager = manager_for(tmp_path)
+    manager.init_storage()
+    alice = manager.save_memory("preference", "Alice prefers Chinese.", "Alice language", name="language", user_id="alice")
+    manager.save_memory("preference", "Bob prefers English.", "Bob language", name="language", user_id="bob")
+    archived = manager.save_memory("project", "Archived project fact.", "old project", name="old-project", user_id="alice")
+    manager.archive_memory(archived.id)
+
+    active_results = manager.retrieve_pinned_memories(user_id="alice", top_k=10)
+    archived_results = manager.retrieve_pinned_memories(user_id="alice", include_archived=True, top_k=10)
+
+    assert [result.memory.id for result in active_results] == [alice.id]
+    assert {result.memory.id for result in archived_results} == {alice.id, archived.id}
+
+
+def test_retrieve_pinned_memories_works_with_sqlite_backend(tmp_path: Path):
+    manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", memory_backend="sqlite"))
+    manager.init_storage()
+    preference = manager.save_memory("preference", "Prefer Chinese.", "language", name="language")
+    project = manager.save_memory("project", "Project uses pytest.", "tests", name="tests")
+    manager.save_memory("knowledge", "Python docs note.", "python docs", name="python-docs")
+
+    results = manager.retrieve_pinned_memories(top_k=10)
+
+    assert {result.memory.id for result in results} == {preference.id, project.id}
+
+
 def test_policy_rejects_unsafe_save(tmp_path: Path):
     manager = manager_for(tmp_path)
     manager.init_storage()

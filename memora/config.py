@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from .taxonomy import MEMORY_TYPE_POLICIES
+
 
 @dataclass
 class MemoryConfig:
@@ -27,13 +29,13 @@ class MemoryConfig:
     max_retrieved_memories: int = 8
     max_memory_prompt_tokens: int = 2000
     max_memory_content_chars: int = 4000
-    default_preference_weight: int = 9
-    default_project_weight: int = 8
-    default_episodic_weight: int = 5
-    default_reflective_weight: int = 7
-    default_tool_weight: int = 6
-    default_knowledge_weight: int = 6
-    default_general_weight: int = 4
+    default_preference_weight: int = MEMORY_TYPE_POLICIES["preference"].default_weight
+    default_project_weight: int = MEMORY_TYPE_POLICIES["project"].default_weight
+    default_episodic_weight: int = MEMORY_TYPE_POLICIES["episodic"].default_weight
+    default_reflective_weight: int = MEMORY_TYPE_POLICIES["reflective"].default_weight
+    default_tool_weight: int = MEMORY_TYPE_POLICIES["tool"].default_weight
+    default_knowledge_weight: int = MEMORY_TYPE_POLICIES["knowledge"].default_weight
+    default_general_weight: int = MEMORY_TYPE_POLICIES["general"].default_weight
     project_fact_review_days: int = 180
     archive_cold_days: int = 180
     consolidate_memory_count: int = 50

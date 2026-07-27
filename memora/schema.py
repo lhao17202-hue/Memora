@@ -7,31 +7,12 @@ from datetime import datetime
 from typing import Literal
 
 from .errors import MemoryValidationError
-
-MemoryType = Literal[
-    "preference",
-    "project",
-    "episodic",
-    "reflective",
-    "tool",
-    "knowledge",
-    "general",
-]
+from .taxonomy import MemoryType, VALID_MEMORY_TYPES
 
 MemoryStatus = Literal["active", "archived", "deleted"]
 
 CandidateAction = Literal["create", "update", "archive", "delete", "reject", "ask_user"]
 SuggestedAction = Literal["create", "update"]
-
-VALID_MEMORY_TYPES = (
-    "preference",
-    "project",
-    "episodic",
-    "reflective",
-    "tool",
-    "knowledge",
-    "general",
-)
 
 VALID_MEMORY_STATUSES = ("active", "archived", "deleted")
 

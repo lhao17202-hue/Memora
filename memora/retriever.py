@@ -7,16 +7,9 @@ import re
 from datetime import datetime, timezone
 
 from .schema import MemoryItem, MemoryQuery, MemorySearchResult
+from .taxonomy import MEMORY_TYPE_POLICIES, half_life_days_for_type
 
-HALF_LIFE_DAYS = {
-    "preference": 365,
-    "project": 180,
-    "episodic": 45,
-    "reflective": 180,
-    "tool": 120,
-    "knowledge": 365,
-    "general": 90,
-}
+HALF_LIFE_DAYS = {memory_type: policy.half_life_days for memory_type, policy in MEMORY_TYPE_POLICIES.items()}
 
 FIELD_WEIGHTS = {
     "name": 1.00,
@@ -214,5 +207,5 @@ class MemoryRetriever:
         if updated.tzinfo is None:
             updated = updated.replace(tzinfo=timezone.utc)
         age_days = max((datetime.now(timezone.utc) - updated).days, 0)
-        half_life = HALF_LIFE_DAYS.get(memory.type, 180)
+        half_life = half_life_days_for_type(memory.type)
         return math.exp(-age_days / half_life)
