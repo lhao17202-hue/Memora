@@ -21,6 +21,8 @@ VALID_CANDIDATE_ACTIONS = ("create", "update", "supersede", "archive", "delete",
 
 VALID_SUGGESTED_ACTIONS = ("create", "update", "supersede")
 
+VALID_RELATION_KINDS = ("none", "duplicate", "merge", "conflict", "supersede")
+
 VALID_SESSION_ROLES = ("user", "assistant", "system", "tool")
 
 
@@ -179,14 +181,23 @@ def validate_suggested_action(value: str) -> None:
         raise MemoryValidationError(f"invalid suggested action: {value}")
 
 
+def validate_relation_kind(value: str) -> None:
+    if value not in VALID_RELATION_KINDS:
+        raise MemoryValidationError(f"invalid relation kind: {value}")
+
+
 def _validate_weight(weight: int) -> None:
     if isinstance(weight, bool) or not isinstance(weight, int) or weight < 1 or weight > 10:
         raise MemoryValidationError("weight must be an integer from 1 to 10")
 
 
+def _validate_unit_score(value: float, field_name: str) -> None:
+    if isinstance(value, bool) or not isinstance(value, int | float) or value < 0.0 or value > 1.0:
+        raise MemoryValidationError(f"{field_name} must be from 0.0 to 1.0")
+
+
 def _validate_confidence(confidence: float) -> None:
-    if isinstance(confidence, bool) or not isinstance(confidence, int | float) or confidence < 0.0 or confidence > 1.0:
-        raise MemoryValidationError("confidence must be from 0.0 to 1.0")
+    _validate_unit_score(confidence, "confidence")
 
 
 def _validate_string_list(values: list[str], field_name: str) -> None:
@@ -202,6 +213,16 @@ def _validate_access_count(access_count: int) -> None:
 def _validate_positive_int(value: int, field_name: str) -> None:
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise MemoryValidationError(f"{field_name} must be an integer > 0")
+
+
+def _validate_optional_string(value: str | None, field_name: str) -> None:
+    if value is not None and not isinstance(value, str):
+        raise MemoryValidationError(f"{field_name} must be a string or null")
+
+
+def _validate_optional_non_empty_string(value: str | None, field_name: str) -> None:
+    if value is not None and (not isinstance(value, str) or not value.strip()):
+        raise MemoryValidationError(f"{field_name} must be a non-empty string or null")
 
 
 def validate_memory_item(item: MemoryItem) -> None:
@@ -243,6 +264,32 @@ def validate_memory_query(query: MemoryQuery) -> None:
             validate_memory_type(memory_type)
     if query.tags is not None:
         _validate_string_list(query.tags, "tags")
+
+
+def validate_memory_relation(relation: MemoryRelation) -> None:
+    validate_relation_kind(relation.kind)
+    _validate_unit_score(relation.similarity_score, "similarity_score")
+    _validate_optional_string(relation.reason, "relation reason")
+    if relation.kind == "none":
+        if relation.target_memory_id is not None and not isinstance(relation.target_memory_id, str):
+            raise MemoryValidationError("target_memory_id must be a string or null")
+        return
+    _validate_optional_non_empty_string(relation.target_memory_id, "target_memory_id")
+    if relation.target_memory_id is None:
+        raise MemoryValidationError("target_memory_id is required for relation kind")
+
+
+def validate_memory_relation_decision(decision: MemoryRelationDecision) -> None:
+    validate_relation_kind(decision.kind)
+    _validate_confidence(decision.confidence)
+    _validate_optional_string(decision.reason, "relation decision reason")
+    _validate_optional_non_empty_string(decision.merged_name, "merged_name")
+    _validate_optional_non_empty_string(decision.merged_description, "merged_description")
+    _validate_optional_non_empty_string(decision.merged_content, "merged_content")
+    if decision.merged_tags is not None:
+        _validate_string_list(decision.merged_tags, "merged_tags")
+    if decision.kind == "merge" and (not decision.merged_description or not decision.merged_content):
+        raise MemoryValidationError("merge relation decision requires merged description and content")
 
 
 def validate_session_message(message: SessionMessage) -> None:

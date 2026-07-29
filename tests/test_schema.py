@@ -8,11 +8,15 @@ from memora.schema import (
     MemoryCandidate,
     MemoryItem,
     MemoryQuery,
+    MemoryRelation,
+    MemoryRelationDecision,
     SessionMessage,
     WorkingMemoryState,
     validate_memory_candidate,
     validate_memory_item,
     validate_memory_query,
+    validate_memory_relation,
+    validate_memory_relation_decision,
     validate_session_message,
 )
 
@@ -158,6 +162,57 @@ def test_validate_memory_query_rejects_invalid_limits():
         validate_memory_query(MemoryQuery(query="中文", top_k=True))
     with pytest.raises(MemoryValidationError, match="max_tokens"):
         validate_memory_query(MemoryQuery(query="中文", max_tokens="100"))
+
+
+def test_validate_memory_relation_accepts_none_and_targeted_relations():
+    validate_memory_relation(MemoryRelation(kind="none", similarity_score=0.42, reason="below threshold"))
+    validate_memory_relation(MemoryRelation(kind="merge", target_memory_id="mem_1", similarity_score=0.92))
+    validate_memory_relation(MemoryRelation(kind="supersede", target_memory_id="mem_1", similarity_score=1.0))
+
+
+def test_validate_memory_relation_rejects_invalid_relation_data():
+    with pytest.raises(MemoryValidationError, match="relation kind"):
+        validate_memory_relation(MemoryRelation(kind="bad", similarity_score=0.5))
+    with pytest.raises(MemoryValidationError, match="similarity_score"):
+        validate_memory_relation(MemoryRelation(kind="none", similarity_score=1.1))
+    with pytest.raises(MemoryValidationError, match="target_memory_id"):
+        validate_memory_relation(MemoryRelation(kind="conflict", similarity_score=0.95))
+    with pytest.raises(MemoryValidationError, match="target_memory_id"):
+        validate_memory_relation(MemoryRelation(kind="merge", target_memory_id="", similarity_score=0.95))
+
+
+def test_validate_memory_relation_decision_accepts_valid_decisions():
+    validate_memory_relation_decision(MemoryRelationDecision(kind="none", confidence=0.9, reason="Different fact."))
+    validate_memory_relation_decision(
+        MemoryRelationDecision(
+            kind="merge",
+            confidence=0.9,
+            reason="Refinement.",
+            merged_description="Response style.",
+            merged_content="Prefer concise answers with summaries.",
+            merged_tags=["style"],
+        )
+    )
+    validate_memory_relation_decision(MemoryRelationDecision(kind="supersede", confidence=0.95, reason="Preference changed."))
+
+
+def test_validate_memory_relation_decision_rejects_invalid_decisions():
+    with pytest.raises(MemoryValidationError, match="relation kind"):
+        validate_memory_relation_decision(MemoryRelationDecision(kind="bad", confidence=0.9))
+    with pytest.raises(MemoryValidationError, match="confidence"):
+        validate_memory_relation_decision(MemoryRelationDecision(kind="none", confidence=True))
+    with pytest.raises(MemoryValidationError, match="merge relation decision"):
+        validate_memory_relation_decision(MemoryRelationDecision(kind="merge", confidence=0.9, merged_description="desc"))
+    with pytest.raises(MemoryValidationError, match="merged_tags"):
+        validate_memory_relation_decision(
+            MemoryRelationDecision(
+                kind="merge",
+                confidence=0.9,
+                merged_description="desc",
+                merged_content="content",
+                merged_tags="tag",
+            )
+        )
 
 
 def test_validate_session_message_rejects_invalid_role():

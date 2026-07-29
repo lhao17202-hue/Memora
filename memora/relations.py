@@ -10,7 +10,7 @@ from typing import Mapping, Protocol, Sequence
 from .config import MemoryConfig
 from .embeddings import EmbeddingProvider, memory_embedding_text
 from .errors import MemoryValidationError
-from .schema import MemoryCandidate, MemoryItem, MemoryRelation, MemoryRelationDecision
+from .schema import MemoryCandidate, MemoryItem, MemoryRelation, MemoryRelationDecision, validate_memory_relation_decision
 from .vector_store import cosine_similarity
 
 RELATION_JUDGE_SYSTEM_PROMPT = """Judge whether one extracted candidate memory changes, duplicates, merges with, conflicts with, supersedes, or is unrelated to one existing memory.
@@ -110,6 +110,16 @@ class DeterministicRelationJudge:
         target: MemoryItem,
         relation: MemoryRelation,
     ) -> MemoryRelationDecision:
+        if relation.kind == "merge":
+            return MemoryRelationDecision(
+                kind=relation.kind,
+                confidence=relation.similarity_score,
+                reason=relation.reason or "deterministic_relation",
+                merged_name=candidate.name or target.name,
+                merged_description=candidate.description,
+                merged_content=candidate.content,
+                merged_tags=list(candidate.tags),
+            )
         return MemoryRelationDecision(
             kind=relation.kind,
             confidence=relation.similarity_score,
@@ -207,7 +217,7 @@ def parse_relation_decision_json(raw_text: str) -> MemoryRelationDecision:
     if kind == "merge" and (not merged_description or not merged_content):
         raise MemoryValidationError("merge relation decision requires merged description and content")
 
-    return MemoryRelationDecision(
+    decision = MemoryRelationDecision(
         kind=kind,
         confidence=float(confidence),
         reason=reason,
@@ -216,6 +226,8 @@ def parse_relation_decision_json(raw_text: str) -> MemoryRelationDecision:
         merged_content=merged_content,
         merged_tags=merged_tags,
     )
+    validate_memory_relation_decision(decision)
+    return decision
 
 
 def _target_relation(kind: str, target: MemoryItem, similarity: float, reason: str) -> MemoryRelation:

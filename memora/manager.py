@@ -29,6 +29,8 @@ from .schema import (
     validate_memory_candidate,
     validate_memory_item,
     validate_memory_query,
+    validate_memory_relation,
+    validate_memory_relation_decision,
 )
 from .session import SessionService
 from .sqlite_store import SQLiteMemoryStore
@@ -162,6 +164,7 @@ class MemoryManager:
         relation_judge_error = None
         if self.relation_resolver is not None and self.policy.rejection_reason(candidate) is None:
             relation = self.relation_resolver.resolve(candidate, scoped)
+            validate_memory_relation(relation)
             relation_decision, relation_judge_status, relation_judge_error = self._judge_relation(candidate, scoped, relation)
         decision = self.policy.evaluate(candidate, scoped, relation=relation, relation_decision=relation_decision)
         self._attach_write_diagnostics(
@@ -190,6 +193,7 @@ class MemoryManager:
             return None, "missing", None
         try:
             decision = self.relation_judge.judge(candidate, target, relation)
+            validate_memory_relation_decision(decision)
         except MemoryValidationError as exc:
             return None, "invalid", str(exc)
         except Exception as exc:  # noqa: BLE001 - invalid LLM decisions fall back to deterministic relation behavior

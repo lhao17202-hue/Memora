@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
 from memora.config import MemoryConfig
 from memora.errors import MemoryNotFoundError, MemoryPolicyError, MemoryValidationError
 from memora.manager import MemoryManager
@@ -841,6 +843,53 @@ def test_no_embedding_relation_does_not_call_llm_relation_judge(tmp_path: Path):
     )
 
     assert result.action == "created"
+
+
+def test_invalid_embedding_relation_is_rejected_before_policy(tmp_path: Path):
+    manager = manager_for(tmp_path)
+    manager.init_storage()
+    manager.save_memory("preference", "Prefer concise responses.", "response style", name="response-style")
+    manager.relation_resolver = FixedRelationResolver(MemoryRelation(kind="conflict", similarity_score=0.95))
+
+    with pytest.raises(MemoryValidationError, match="target_memory_id"):
+        manager.remember_candidate(
+            MemoryCandidate(
+                action="create",
+                type="preference",
+                name="style-short",
+                description="Prefer concise responses with short summaries.",
+                content="Prefer concise responses with short summaries.",
+            )
+        )
+
+
+def test_invalid_llm_merge_shape_reports_invalid_and_falls_back(tmp_path: Path):
+    judge = FixedRelationJudge(MemoryRelationDecision(kind="merge", confidence=0.90, reason="Missing merged fields."))
+    manager = MemoryManager(
+        MemoryConfig(root_dir=tmp_path / ".memora", llm_relation_judge_enabled=True),
+        relation_judge=judge,
+    )
+    manager.init_storage()
+    existing = manager.save_memory("preference", "Prefer concise responses.", "response style", name="response-style")
+    manager.relation_resolver = FixedRelationResolver(
+        MemoryRelation(kind="merge", target_memory_id=existing.id, target_updated_at=existing.updated_at, similarity_score=0.92)
+    )
+
+    result = manager.remember_candidate(
+        MemoryCandidate(
+            action="create",
+            type="preference",
+            name="style-short",
+            description="Prefer concise responses with short summaries.",
+            content="Prefer concise responses with short summaries.",
+        )
+    )
+
+    assert result.action == "updated"
+    assert result.reason == "semantic_merge"
+    assert result.relation_kind == "merge"
+    assert result.relation_judge_status == "invalid"
+    assert result.relation_judge_error == "merge relation decision requires merged description and content"
 
 
 def test_semantic_conflict_requires_confirmation_without_writing(tmp_path: Path):
