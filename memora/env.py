@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 from typing import Mapping
 
+from .errors import MemoryValidationError
+
 _BOOL_FIELDS = {
     "MEMORA_RAG": "rag_enabled",
     "MEMORA_FTS_ENABLED": "fts_enabled",
@@ -94,9 +96,15 @@ def config_kwargs_from_env(env: Mapping[str, str]) -> dict[str, object]:
         if key in _BOOL_FIELDS:
             kwargs[field] = _parse_bool(value, key)
         elif key in _INT_FIELDS:
-            kwargs[field] = int(value)
+            try:
+                kwargs[field] = int(value)
+            except ValueError as exc:
+                raise MemoryValidationError(f"invalid integer value for {key}: {value}") from exc
         elif key in _FLOAT_FIELDS:
-            kwargs[field] = float(value)
+            try:
+                kwargs[field] = float(value)
+            except ValueError as exc:
+                raise MemoryValidationError(f"invalid float value for {key}: {value}") from exc
         else:
             kwargs[field] = value
     return kwargs
@@ -108,4 +116,4 @@ def _parse_bool(value: str, key: str) -> bool:
         return True
     if lowered in _FALSE_VALUES:
         return False
-    raise ValueError(f"invalid boolean value for {key}: {value}")
+    raise MemoryValidationError(f"invalid boolean value for {key}: {value}")

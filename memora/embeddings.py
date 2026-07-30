@@ -105,7 +105,7 @@ class BgeM3EmbeddingProvider:
         result = self._model.encode(
             sentences=texts,
             return_dense=True,
-            return_sparse=True,
+            return_sparse=False,
             return_colbert_vecs=False,
             batch_size=self.batch_size,
         )

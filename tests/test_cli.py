@@ -360,6 +360,32 @@ def test_cli_loads_env_file_and_cli_overrides_it(tmp_path: Path):
     assert row == ("env-hash-model", 32)
 
 
+def test_invalid_env_config_reports_clear_cli_error_without_traceback(tmp_path: Path):
+    root = tmp_path / ".memora"
+    env_path = tmp_path / ".env"
+    env_path.write_text("MEMORA_EMBEDDING_BATCH_SIZE=abc\n", encoding="utf-8")
+
+    result = run_cli(root, "--env-file", str(env_path), "init")
+
+    assert result.returncode == 1
+    assert "error:" in result.stderr
+    assert "MEMORA_EMBEDDING_BATCH_SIZE" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_invalid_env_bool_reports_clear_cli_error_without_traceback(tmp_path: Path):
+    root = tmp_path / ".memora"
+    env_path = tmp_path / ".env"
+    env_path.write_text("MEMORA_EMBEDDING_FP16=maybe\n", encoding="utf-8")
+
+    result = run_cli(root, "--env-file", str(env_path), "init")
+
+    assert result.returncode == 1
+    assert "error:" in result.stderr
+    assert "MEMORA_EMBEDDING_FP16" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
 def test_sqlite_backend_rag_cli_flow(tmp_path: Path):
     root = tmp_path / ".memora"
 

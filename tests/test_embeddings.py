@@ -119,7 +119,7 @@ def test_bge_provider_encodes_dense_vectors_with_expected_options(fake_flag_embe
         {
             "sentences": ["结构化单据识别规则", "发票OCR提取规范"],
             "return_dense": True,
-            "return_sparse": True,
+            "return_sparse": False,
             "return_colbert_vecs": False,
             "batch_size": 8,
         }
