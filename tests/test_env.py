@@ -1,6 +1,9 @@
 import os
 
+import pytest
+
 from memora.env import apply_env_to_os, config_kwargs_from_env, load_env_file, merge_env
+from memora.errors import MemoryValidationError
 
 
 def test_load_env_file_parses_simple_values(tmp_path):
@@ -37,7 +40,15 @@ def test_config_kwargs_from_env_coerces_memora_values():
             "MEMORA_EMBEDDING_DIMENSION": "1024",
             "MEMORA_EMBEDDING_BATCH_SIZE": "8",
             "MEMORA_EMBEDDING_FP16": "on",
+            "MEMORA_EMBEDDING_SPARSE": "true",
+            "MEMORA_RETRIEVAL_MODE": "hybrid",
+            "MEMORA_HYBRID_PREFETCH_LIMIT": "100",
             "MEMORA_MIN_SEMANTIC_SCORE": "0.30",
+            "MEMORA_QDRANT_URL": "http://localhost:6333",
+            "MEMORA_QDRANT_PORT": "6333",
+            "MEMORA_QDRANT_COLLECTION": "memora_memories",
+            "MEMORA_QDRANT_TIMEOUT": "5.5",
+            "MEMORA_QDRANT_PREFER_GRPC": "false",
         }
     )
 
@@ -49,8 +60,24 @@ def test_config_kwargs_from_env_coerces_memora_values():
         "embedding_dimension": 1024,
         "embedding_batch_size": 8,
         "embedding_fp16": True,
+        "embedding_sparse": True,
+        "retrieval_mode": "hybrid",
+        "hybrid_prefetch_limit": 100,
         "min_semantic_score": 0.30,
+        "qdrant_url": "http://localhost:6333",
+        "qdrant_port": 6333,
+        "qdrant_collection": "memora_memories",
+        "qdrant_timeout": 5.5,
+        "qdrant_prefer_grpc": False,
     }
+
+
+def test_config_kwargs_from_env_reports_invalid_values():
+    with pytest.raises(MemoryValidationError, match="MEMORA_QDRANT_PORT"):
+        config_kwargs_from_env({"MEMORA_QDRANT_PORT": "abc"})
+
+    with pytest.raises(MemoryValidationError, match="MEMORA_EMBEDDING_SPARSE"):
+        config_kwargs_from_env({"MEMORA_EMBEDDING_SPARSE": "maybe"})
 
 
 def test_merge_env_gives_process_env_precedence(monkeypatch):

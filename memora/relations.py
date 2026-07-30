@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Mapping, Protocol, Sequence
 
 from .config import MemoryConfig
-from .embeddings import EmbeddingProvider, memory_embedding_text
+from .embeddings import EmbeddingProvider, embedding_dense, memory_embedding_text
 from .errors import MemoryValidationError
 from .schema import MemoryCandidate, MemoryItem, MemoryRelation, MemoryRelationDecision, validate_memory_relation_decision
 from .vector_store import cosine_similarity
@@ -86,7 +86,7 @@ class SemanticMemoryRelationResolver:
         candidate_vector = self.embedder.embed([candidate_embedding_text(candidate)])[0]
         item_vectors = self.embedder.embed([memory_embedding_text(item) for item in comparable])
         scored = [
-            (cosine_similarity(candidate_vector, item_vector), item)
+            (cosine_similarity(embedding_dense(candidate_vector), embedding_dense(item_vector)), item)
             for item, item_vector in zip(comparable, item_vectors, strict=True)
         ]
         scored.sort(key=lambda match: match[0], reverse=True)

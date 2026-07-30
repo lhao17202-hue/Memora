@@ -19,6 +19,9 @@ dev = [
 bge = [
   "FlagEmbedding>=1.2.0",
 ]
+qdrant = [
+  "qdrant-client>=1.9",
+]
 
 [project.scripts]
 memora = "memora.cli:main"

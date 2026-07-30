@@ -12,6 +12,9 @@ _BOOL_FIELDS = {
     "MEMORA_RAG": "rag_enabled",
     "MEMORA_FTS_ENABLED": "fts_enabled",
     "MEMORA_EMBEDDING_FP16": "embedding_fp16",
+    "MEMORA_EMBEDDING_SPARSE": "embedding_sparse",
+    "MEMORA_QDRANT_PREFER_GRPC": "qdrant_prefer_grpc",
+    "MEMORA_QDRANT_RECREATE_COLLECTION": "qdrant_recreate_collection",
     "MEMORA_SEMANTIC_WRITE_RELATIONS": "semantic_write_relations_enabled",
 }
 
@@ -19,6 +22,8 @@ _INT_FIELDS = {
     "MEMORA_FTS_CANDIDATE_LIMIT": "fts_candidate_limit",
     "MEMORA_EMBEDDING_DIMENSION": "embedding_dimension",
     "MEMORA_EMBEDDING_BATCH_SIZE": "embedding_batch_size",
+    "MEMORA_HYBRID_PREFETCH_LIMIT": "hybrid_prefetch_limit",
+    "MEMORA_QDRANT_PORT": "qdrant_port",
     "MEMORA_VECTOR_CANDIDATE_LIMIT": "vector_candidate_limit",
     "MEMORA_KEYWORD_CANDIDATE_LIMIT": "keyword_candidate_limit",
     "MEMORA_RERANK_CANDIDATE_LIMIT": "rerank_candidate_limit",
@@ -29,6 +34,7 @@ _INT_FIELDS = {
 
 _FLOAT_FIELDS = {
     "MEMORA_MIN_SEMANTIC_SCORE": "min_semantic_score",
+    "MEMORA_QDRANT_TIMEOUT": "qdrant_timeout",
     "MEMORA_SEMANTIC_RELATION_THRESHOLD": "semantic_relation_threshold",
     "MEMORA_SEMANTIC_MERGE_THRESHOLD": "semantic_merge_threshold",
     "MEMORA_SEMANTIC_CONFLICT_THRESHOLD": "semantic_conflict_threshold",
@@ -43,6 +49,11 @@ _STRING_FIELDS = {
     "MEMORA_EMBEDDING_MODEL_PATH": "embedding_model_path",
     "MEMORA_VECTOR_STORE": "vector_store",
     "MEMORA_VECTOR_PATH": "vector_path",
+    "MEMORA_RETRIEVAL_MODE": "retrieval_mode",
+    "MEMORA_QDRANT_URL": "qdrant_url",
+    "MEMORA_QDRANT_HOST": "qdrant_host",
+    "MEMORA_QDRANT_API_KEY": "qdrant_api_key",
+    "MEMORA_QDRANT_COLLECTION": "qdrant_collection",
     "MEMORA_RERANKER": "reranker",
 }
 

@@ -19,7 +19,7 @@ from .reranker import RESERVED_RERANKERS, DeterministicReranker, NoOpReranker, R
 from .retriever import MemoryRetriever
 from .schema import MemoryItem, MemoryQuery, MemorySearchResult
 from .stores import MemoryCandidateStore, MemoryStore
-from .vector_store import RESERVED_VECTOR_STORES, SQLiteVectorStore, VectorSearchHit, VectorStore
+from .vector_store import RESERVED_VECTOR_STORES, QdrantVectorStore, SQLiteVectorStore, VectorSearchHit, VectorStore
 
 
 class ReservedEmbeddingProvider:
@@ -37,27 +37,46 @@ class ReservedReranker:
         raise MemoryValidationError(f"reranker '{name}' is reserved but not implemented in RAG v1")
 
 
+def _validate_retrieval_config(config: MemoryConfig, embedder: EmbeddingProvider | None = None) -> None:
+    if config.retrieval_mode not in {"dense", "hybrid"}:
+        raise MemoryValidationError(f"unsupported retrieval_mode: {config.retrieval_mode}")
+    if config.retrieval_mode == "hybrid" and not config.embedding_sparse:
+        raise MemoryValidationError("retrieval_mode 'hybrid' requires embedding_sparse=True")
+    if config.retrieval_mode == "hybrid" and config.vector_store != "qdrant":
+        raise MemoryValidationError("retrieval_mode 'hybrid' requires vector_store 'qdrant'")
+    if config.retrieval_mode == "hybrid" and embedder is not None and not getattr(embedder, "supports_sparse", False):
+        raise MemoryValidationError(f"embedding_provider '{embedder.name}' does not support sparse embeddings required for hybrid retrieval")
+
+
 def build_embedding_provider(config: MemoryConfig) -> EmbeddingProvider:
+    _validate_retrieval_config(config)
     if config.embedding_provider == "hash":
-        return HashEmbeddingProvider(dimension=config.embedding_dimension, model=config.embedding_model)
-    if config.embedding_provider == "bge":
+        embedder = HashEmbeddingProvider(dimension=config.embedding_dimension, model=config.embedding_model)
+    elif config.embedding_provider == "bge":
         model = config.embedding_model if config.embedding_model != "memora-hash-v1" else "bge-m3"
         dimension = 1024 if config.embedding_dimension == 384 else config.embedding_dimension
-        return BgeM3EmbeddingProvider(
+        embedder = BgeM3EmbeddingProvider(
             model_path=config.embedding_model_path,
             model=model,
             dimension=dimension,
             batch_size=config.embedding_batch_size,
             fp16=config.embedding_fp16,
+            return_sparse=config.embedding_sparse,
         )
-    if config.embedding_provider in RESERVED_EMBEDDING_PROVIDERS:
+    elif config.embedding_provider in RESERVED_EMBEDDING_PROVIDERS:
         ReservedEmbeddingProvider(config.embedding_provider)
-    raise MemoryValidationError(f"unsupported embedding_provider for RAG v1: {config.embedding_provider}")
+    else:
+        raise MemoryValidationError(f"unsupported embedding_provider for RAG v1: {config.embedding_provider}")
+    _validate_retrieval_config(config, embedder)
+    return embedder
 
 
 def build_vector_store(config: MemoryConfig) -> VectorStore:
+    _validate_retrieval_config(config)
     if config.vector_store == "sqlite":
         return SQLiteVectorStore(config)
+    if config.vector_store == "qdrant":
+        return QdrantVectorStore(config)
     if config.vector_store in RESERVED_VECTOR_STORES:
         ReservedVectorStore(config.vector_store)
     raise MemoryValidationError(f"unsupported vector_store for RAG v1: {config.vector_store}")
@@ -73,8 +92,8 @@ def build_reranker(config: MemoryConfig) -> Reranker:
     raise MemoryValidationError(f"unsupported reranker for RAG v1: {config.reranker}")
 
 
-def build_vector_metadata(item: MemoryItem, embedder: EmbeddingProvider, text: str) -> dict[str, Any]:
-    return {
+def build_vector_metadata(item: MemoryItem, embedder: EmbeddingProvider, text: str, config: MemoryConfig | None = None) -> dict[str, Any]:
+    metadata = {
         "memory_id": item.id,
         "user_id": item.user_id,
         "project_id": item.project_id,
@@ -88,13 +107,23 @@ def build_vector_metadata(item: MemoryItem, embedder: EmbeddingProvider, text: s
         "text_hash": sha256_text(text),
         "updated_at": item.updated_at.isoformat() if item.updated_at else None,
     }
+    if config is not None:
+        metadata.update(
+            {
+                "vector_store": config.vector_store,
+                "retrieval_mode": config.retrieval_mode,
+                "sparse_enabled": config.embedding_sparse,
+            }
+        )
+    return metadata
 
 
 class RagIndex:
-    def __init__(self, memory_store: MemoryStore, embedder: EmbeddingProvider, vector_store: VectorStore):
+    def __init__(self, memory_store: MemoryStore, embedder: EmbeddingProvider, vector_store: VectorStore, config: MemoryConfig | None = None):
         self.memory_store = memory_store
         self.embedder = embedder
         self.vector_store = vector_store
+        self.config = config or MemoryConfig()
 
     def init_storage(self) -> None:
         self.vector_store.init_storage()
@@ -105,7 +134,7 @@ class RagIndex:
             return
         text = memory_embedding_text(item)
         vector = self.embedder.embed([text])[0]
-        self.vector_store.upsert(item.id, vector, build_vector_metadata(item, self.embedder, text))
+        self.vector_store.upsert(item.id, vector, build_vector_metadata(item, self.embedder, text, self.config))
 
     def delete_memory(self, memory_id: str) -> None:
         self.vector_store.delete(memory_id)
@@ -130,7 +159,7 @@ class RagIndex:
         mismatches = []
         for item in active_items:
             text = memory_embedding_text(item)
-            metadata = build_vector_metadata(item, self.embedder, text)
+            metadata = build_vector_metadata(item, self.embedder, text, self.config)
             hit_metadata = self.vector_store.get_metadata(item.id)
             if hit_metadata is None:
                 continue
@@ -199,6 +228,7 @@ class RagRetriever:
     def _vector_recall(self, query: MemoryQuery, allowed: dict[str, MemoryItem]) -> list[VectorSearchHit]:
         try:
             query_vector = self.embedder.embed([query.query])[0]
+            mode = "hybrid" if self.config.retrieval_mode == "hybrid" and query_vector.sparse is not None else "dense"
             hits = self.vector_store.search(
                 query_vector,
                 top_k=self.config.vector_candidate_limit,
@@ -210,6 +240,7 @@ class RagRetriever:
                     "types": query.memory_types,
                     "tags": query.tags,
                 },
+                mode=mode,
             )
         except Exception:  # noqa: BLE001 - retrieval should degrade
             return []
@@ -235,11 +266,12 @@ class RagRetriever:
         merged: dict[str, dict[str, Any]] = {}
         for hit in vector_hits:
             if hit.memory_id in allowed:
-                merged.setdefault(hit.memory_id, {"memory": allowed[hit.memory_id], "semantic_score": 0.0, "keyword_candidate": False})
+                merged.setdefault(hit.memory_id, {"memory": allowed[hit.memory_id], "semantic_score": 0.0, "keyword_candidate": False, "vector_source": "dense"})
                 merged[hit.memory_id]["semantic_score"] = max(float(hit.score), merged[hit.memory_id]["semantic_score"])
+                merged[hit.memory_id]["vector_source"] = hit.source
         for item in keyword_items:
             if item.id in allowed:
-                merged.setdefault(item.id, {"memory": item, "semantic_score": 0.0, "keyword_candidate": False})
+                merged.setdefault(item.id, {"memory": item, "semantic_score": 0.0, "keyword_candidate": False, "vector_source": "dense"})
                 merged[item.id]["keyword_candidate"] = True
         return merged
 
@@ -249,7 +281,7 @@ class RagRetriever:
             memory = data["memory"]
             semantic_score = float(data.get("semantic_score") or 0.0)
             keyword_score = 0.0
-            reason = "matched_vector" if semantic_score > 0 else ""
+            reason = "matched_hybrid_vector" if semantic_score > 0 and data.get("vector_source") == "hybrid" else "matched_vector" if semantic_score > 0 else ""
             keyword_result = self.retriever.score(memory, query)
             if keyword_result is not None:
                 keyword_score = keyword_result.similarity_score

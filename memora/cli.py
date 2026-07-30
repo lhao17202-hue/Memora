@@ -36,6 +36,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--embedding-model-path", default=None, help="Local embedding model path for providers such as bge.")
     parser.add_argument("--embedding-batch-size", type=int, default=None, help="Embedding batch size for local providers.")
     parser.add_argument("--embedding-fp16", action="store_true", default=None, help="Use fp16 for local embedding providers when supported.")
+    parser.add_argument("--embedding-sparse", action="store_true", default=None, help="Request sparse embeddings from providers that support them.")
+    parser.add_argument("--retrieval-mode", choices=("dense", "hybrid"), default=None, help="Vector retrieval mode for RAG.")
+    parser.add_argument("--hybrid-prefetch-limit", type=int, default=None, help="Per-channel prefetch limit for hybrid vector retrieval.")
+    parser.add_argument("--qdrant-url", default=None, help="Qdrant URL, for example http://localhost:6333.")
+    parser.add_argument("--qdrant-host", default=None, help="Qdrant host when --qdrant-url is not set.")
+    parser.add_argument("--qdrant-port", type=int, default=None, help="Qdrant port when --qdrant-url is not set.")
+    parser.add_argument("--qdrant-api-key", default=None, help="Qdrant API key, if required.")
+    parser.add_argument("--qdrant-collection", default=None, help="Qdrant collection name for Memora vectors.")
+    parser.add_argument("--qdrant-timeout", type=float, default=None, help="Qdrant client timeout in seconds.")
+    parser.add_argument("--qdrant-prefer-grpc", action="store_true", default=None, help="Prefer gRPC for Qdrant client calls.")
+    parser.add_argument("--qdrant-recreate-collection", action="store_true", default=None, help="Recreate the Qdrant collection during init; deletes indexed vector data.")
     parser.add_argument("--vector-store", default=None, choices=VECTOR_STORE_CHOICES, help="Vector store for RAG.")
     parser.add_argument("--reranker", default=None, choices=RERANKER_CHOICES, help="Reranker for RAG.")
     parser.add_argument("--semantic-write-relations", action="store_true", help="Use embeddings to detect write-time duplicate, merge, and conflict relations.")
@@ -168,6 +179,14 @@ def _config_kwargs_from_args(args) -> dict:
         "embedding_dimension": args.embedding_dimension,
         "embedding_model_path": args.embedding_model_path,
         "embedding_batch_size": args.embedding_batch_size,
+        "retrieval_mode": args.retrieval_mode,
+        "hybrid_prefetch_limit": args.hybrid_prefetch_limit,
+        "qdrant_url": args.qdrant_url,
+        "qdrant_host": args.qdrant_host,
+        "qdrant_port": args.qdrant_port,
+        "qdrant_api_key": args.qdrant_api_key,
+        "qdrant_collection": args.qdrant_collection,
+        "qdrant_timeout": args.qdrant_timeout,
         "vector_store": args.vector_store,
         "reranker": args.reranker,
         "semantic_relation_threshold": args.semantic_relation_threshold,
@@ -183,6 +202,12 @@ def _config_kwargs_from_args(args) -> dict:
         kwargs["rag_enabled"] = True
     if args.embedding_fp16:
         kwargs["embedding_fp16"] = True
+    if args.embedding_sparse:
+        kwargs["embedding_sparse"] = True
+    if args.qdrant_prefer_grpc:
+        kwargs["qdrant_prefer_grpc"] = True
+    if args.qdrant_recreate_collection:
+        kwargs["qdrant_recreate_collection"] = True
     if args.semantic_write_relations:
         kwargs["semantic_write_relations_enabled"] = True
     if args.no_high_confidence_conflict_replace:
@@ -191,6 +216,7 @@ def _config_kwargs_from_args(args) -> dict:
     kwargs.setdefault("memory_backend", "file")
     kwargs.setdefault("embedding_provider", "hash")
     kwargs.setdefault("vector_store", "sqlite")
+    kwargs.setdefault("retrieval_mode", "dense")
     kwargs.setdefault("reranker", "deterministic")
     return kwargs
 

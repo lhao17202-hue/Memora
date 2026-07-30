@@ -7,7 +7,10 @@ from memora.config import MemoryConfig
 from memora.embeddings import (
     BgeM3EmbeddingProvider,
     EMBEDDING_PROVIDER_CHOICES,
+    EmbeddingVector,
     HashEmbeddingProvider,
+    SparseVector,
+    embedding_dense,
     memory_embedding_text,
     sha256_text,
 )
@@ -33,7 +36,10 @@ class FakeBgeModel:
     def encode(self, **kwargs):
         self.__class__.encode_calls.append(kwargs)
         vectors = [[float(index + 1)] * 4 for index, _ in enumerate(kwargs["sentences"])]
-        return {"dense_vecs": DenseResult(vectors), "lexical_weights": [{"token": 1.0}]}
+        result = {"dense_vecs": DenseResult(vectors)}
+        if kwargs["return_sparse"]:
+            result["lexical_weights"] = [{"3": 0.5, "1": 1.25, "2": 0.0} for _ in kwargs["sentences"]]
+        return result
 
 
 @pytest.fixture
@@ -56,7 +62,10 @@ def test_memory_config_rag_defaults_are_disabled():
     assert config.embedding_model_path is None
     assert config.embedding_batch_size == 8
     assert config.embedding_fp16 is False
+    assert config.embedding_sparse is False
     assert config.vector_store == "sqlite"
+    assert config.retrieval_mode == "dense"
+    assert config.qdrant_collection == "memora_memories"
     assert config.reranker == "deterministic"
 
 
@@ -73,8 +82,10 @@ def test_hash_embedding_provider_is_deterministic_and_ordered():
     assert vectors[0] == provider.embed(["alpha 中文"])[0]
     assert vectors[1] == provider.embed(["beta"])[0]
     assert vectors[0] != vectors[1]
-    assert len(vectors[0]) == 16
-    assert len(vectors[1]) == 16
+    assert len(vectors[0].dense) == 16
+    assert len(vectors[1].dense) == 16
+    assert vectors[0].sparse is None
+    assert provider.supports_sparse is False
 
 
 def test_hash_embedding_empty_string_is_stable_zero_vector():
@@ -82,8 +93,9 @@ def test_hash_embedding_empty_string_is_stable_zero_vector():
 
     vector = provider.embed([""])[0]
 
-    assert vector == [0.0] * 8
+    assert vector.dense == [0.0] * 8
     assert vector == provider.embed(["   "])[0]
+    assert embedding_dense(vector) == [0.0] * 8
 
 
 def test_bge_provider_requires_model_path(fake_flag_embedding):
@@ -112,9 +124,10 @@ def test_bge_provider_encodes_dense_vectors_with_expected_options(fake_flag_embe
     assert provider.name == "bge"
     assert provider.model == "bge-m3"
     assert provider.dimension == 4
+    assert provider.supports_sparse is True
     assert provider._model.model_path == "C:/Download/bge-m3"
     assert provider._model.use_fp16 is True
-    assert vectors == [[1.0, 1.0, 1.0, 1.0], [2.0, 2.0, 2.0, 2.0]]
+    assert vectors == [EmbeddingVector(dense=[1.0, 1.0, 1.0, 1.0]), EmbeddingVector(dense=[2.0, 2.0, 2.0, 2.0])]
     assert fake_flag_embedding.encode_calls == [
         {
             "sentences": ["结构化单据识别规则", "发票OCR提取规范"],
@@ -124,6 +137,15 @@ def test_bge_provider_encodes_dense_vectors_with_expected_options(fake_flag_embe
             "batch_size": 8,
         }
     ]
+
+
+def test_bge_provider_can_return_sparse_vectors(fake_flag_embedding):
+    provider = BgeM3EmbeddingProvider(model_path="C:/Download/bge-m3", dimension=4, return_sparse=True)
+
+    vectors = provider.embed(["结构化单据识别规则"])
+
+    assert vectors == [EmbeddingVector(dense=[1.0, 1.0, 1.0, 1.0], sparse=SparseVector(indices=[1, 3], values=[1.25, 0.5]))]
+    assert fake_flag_embedding.encode_calls[0]["return_sparse"] is True
 
 
 def test_bge_provider_empty_input_does_not_call_model(fake_flag_embedding):
@@ -137,6 +159,17 @@ def test_bge_provider_rejects_dimension_mismatch(fake_flag_embedding):
     provider = BgeM3EmbeddingProvider(model_path="C:/Download/bge-m3", dimension=8)
 
     with pytest.raises(MemoryValidationError, match="dimension"):
+        provider.embed(["结构化单据识别规则"])
+
+
+def test_bge_provider_requires_sparse_output_when_requested(fake_flag_embedding, monkeypatch):
+    def encode_without_sparse(self, **kwargs):
+        return {"dense_vecs": DenseResult([[1.0] * 4])}
+
+    monkeypatch.setattr(FakeBgeModel, "encode", encode_without_sparse)
+    provider = BgeM3EmbeddingProvider(model_path="C:/Download/bge-m3", dimension=4, return_sparse=True)
+
+    with pytest.raises(MemoryValidationError, match="lexical_weights"):
         provider.embed(["结构化单据识别规则"])
 
 
