@@ -16,6 +16,9 @@ dependencies = [
 dev = [
   "pytest>=8.0",
 ]
+bge = [
+  "FlagEmbedding>=1.2.0",
+]
 
 [project.scripts]
 memora = "memora.cli:main"

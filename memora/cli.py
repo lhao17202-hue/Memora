@@ -9,9 +9,10 @@ from dataclasses import asdict
 from datetime import datetime
 
 from .config import MemoryConfig
+from .embeddings import EMBEDDING_PROVIDER_CHOICES
+from .env import apply_env_to_os, config_kwargs_from_env, load_env_file, merge_env
 from .errors import MemoraError, MemoryValidationError
 from .manager import MemoryManager
-from .embeddings import EMBEDDING_PROVIDER_CHOICES
 from .reranker import RERANKER_CHOICES
 from .runtime import MemoryRuntime
 from .schema import MemoryCandidate, SessionMessage
@@ -23,14 +24,20 @@ def build_parser() -> argparse.ArgumentParser:
         prog="memora",
         description="Memora deterministic local memory system.",
     )
-    parser.add_argument("--root", default=".memora", help="Memora runtime root directory.")
-    parser.add_argument("--backend", choices=("file", "sqlite"), default="file", help="Memory storage backend.")
+    parser.add_argument("--root", default=None, help="Memora runtime root directory.")
+    parser.add_argument("--env-file", default=".env", help="Path to a Memora .env file for local config.")
+    parser.add_argument("--backend", choices=("file", "sqlite"), default=None, help="Memory storage backend.")
     parser.add_argument("--sqlite-path", help="SQLite database path when --backend sqlite is used.")
-    parser.add_argument("--no-fts", action="store_true", help="Disable SQLite FTS candidate recall.")
-    parser.add_argument("--rag", action="store_true", help="Enable deterministic local RAG retrieval and vector indexing.")
-    parser.add_argument("--embedding-provider", default="hash", choices=EMBEDDING_PROVIDER_CHOICES, help="Embedding provider for RAG.")
-    parser.add_argument("--vector-store", default="sqlite", choices=VECTOR_STORE_CHOICES, help="Vector store for RAG.")
-    parser.add_argument("--reranker", default="deterministic", choices=RERANKER_CHOICES, help="Reranker for RAG.")
+    parser.add_argument("--no-fts", action="store_true", default=None, help="Disable SQLite FTS candidate recall.")
+    parser.add_argument("--rag", action="store_true", default=None, help="Enable deterministic local RAG retrieval and vector indexing.")
+    parser.add_argument("--embedding-provider", default=None, choices=EMBEDDING_PROVIDER_CHOICES, help="Embedding provider for RAG.")
+    parser.add_argument("--embedding-model", default=None, help="Embedding model label for RAG metadata.")
+    parser.add_argument("--embedding-dimension", type=int, default=None, help="Embedding vector dimension.")
+    parser.add_argument("--embedding-model-path", default=None, help="Local embedding model path for providers such as bge.")
+    parser.add_argument("--embedding-batch-size", type=int, default=None, help="Embedding batch size for local providers.")
+    parser.add_argument("--embedding-fp16", action="store_true", default=None, help="Use fp16 for local embedding providers when supported.")
+    parser.add_argument("--vector-store", default=None, choices=VECTOR_STORE_CHOICES, help="Vector store for RAG.")
+    parser.add_argument("--reranker", default=None, choices=RERANKER_CHOICES, help="Reranker for RAG.")
     parser.add_argument("--semantic-write-relations", action="store_true", help="Use embeddings to detect write-time duplicate, merge, and conflict relations.")
     parser.add_argument("--semantic-relation-threshold", type=float, default=0.78, help="Minimum similarity for write-time semantic relation detection.")
     parser.add_argument("--semantic-merge-threshold", type=float, default=0.82, help="Minimum similarity for write-time semantic merge/update decisions.")
@@ -139,27 +146,53 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        manager = MemoryManager(
-            MemoryConfig(
-                root_dir=args.root,
-                memory_backend=args.backend,
-                sqlite_path=args.sqlite_path,
-                fts_enabled=not args.no_fts,
-                rag_enabled=args.rag,
-                embedding_provider=args.embedding_provider,
-                vector_store=args.vector_store,
-                reranker=args.reranker,
-                semantic_write_relations_enabled=args.semantic_write_relations,
-                semantic_relation_threshold=args.semantic_relation_threshold,
-                semantic_merge_threshold=args.semantic_merge_threshold,
-                semantic_conflict_threshold=args.semantic_conflict_threshold,
-                allow_high_confidence_conflict_replace=not args.no_high_confidence_conflict_replace,
-            )
-        )
+        config_kwargs = _config_kwargs_from_args(args)
+        manager = MemoryManager(MemoryConfig(**config_kwargs))
         return _run_command(args, manager, parser)
     except MemoraError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+
+
+def _config_kwargs_from_args(args) -> dict:
+    file_env = load_env_file(args.env_file) if args.env_file else {}
+    env = merge_env(file_env)
+    apply_env_to_os(env)
+    kwargs = config_kwargs_from_env(env)
+    cli_values = {
+        "root_dir": args.root,
+        "memory_backend": args.backend,
+        "sqlite_path": args.sqlite_path,
+        "embedding_provider": args.embedding_provider,
+        "embedding_model": args.embedding_model,
+        "embedding_dimension": args.embedding_dimension,
+        "embedding_model_path": args.embedding_model_path,
+        "embedding_batch_size": args.embedding_batch_size,
+        "vector_store": args.vector_store,
+        "reranker": args.reranker,
+        "semantic_relation_threshold": args.semantic_relation_threshold,
+        "semantic_merge_threshold": args.semantic_merge_threshold,
+        "semantic_conflict_threshold": args.semantic_conflict_threshold,
+    }
+    for key, value in cli_values.items():
+        if value is not None:
+            kwargs[key] = value
+    if args.no_fts is not None:
+        kwargs["fts_enabled"] = not args.no_fts
+    if args.rag:
+        kwargs["rag_enabled"] = True
+    if args.embedding_fp16:
+        kwargs["embedding_fp16"] = True
+    if args.semantic_write_relations:
+        kwargs["semantic_write_relations_enabled"] = True
+    if args.no_high_confidence_conflict_replace:
+        kwargs["allow_high_confidence_conflict_replace"] = False
+    kwargs.setdefault("root_dir", ".memora")
+    kwargs.setdefault("memory_backend", "file")
+    kwargs.setdefault("embedding_provider", "hash")
+    kwargs.setdefault("vector_store", "sqlite")
+    kwargs.setdefault("reranker", "deterministic")
+    return kwargs
 
 
 def _json_default(value):

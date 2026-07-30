@@ -35,12 +35,14 @@ Memora 中的长期记忆仍然是经过外部 agent runtime 或抽取逻辑沉�
 
 是否保存、是否拒绝、是否需要确认，仍然由现有 Policy 和写入流程决定。RAG 存储层只解决：这些已经写入的记忆如何被更好地召回。
 
-第一版要保持 local-first 和 deterministic：
+当前阶段继续保持 local-first：
 
+- 默认仍使用零依赖 `HashEmbeddingProvider`。
+- 可选支持本地离线 BGE-M3 dense embedding provider。
 - 不新增网络型 embedding provider。
 - 不新增服务型向量数据库。
 - 不新增模型 reranker。
-- 不新增 optional dependency extras。
+- `FlagEmbedding` 仅作为 `bge` optional extra，不进入默认安装依赖。
 - 不注册未实现的 provider，也不写 `NotImplemented` 占位类来假装支持。
 
 ---
@@ -75,11 +77,12 @@ MemoryRuntime
 
 硬边界：VectorStore 和 EmbeddingProvider 平级，都是可替换生态入口；但第一版只实现 deterministic/local provider。
 
-第一版模块关系：
+第一阶段模块关系：
 
 ```text
 embeddings.py
   -> HashEmbeddingProvider
+  -> BgeM3EmbeddingProvider（可选 FlagEmbedding extra，本地模型路径）
 
 vector_store.py
   -> SQLiteVectorStore
@@ -205,9 +208,10 @@ EmbeddingProvider 是向量化生态入口。
 
 第一版只实现：
 
-| Provider | 第一版状态 | 用途 |
+| Provider | 当前状态 | 用途 |
 |---|---|---|
-| HashEmbeddingProvider | 实现 | 零依赖、确定性测试、离线开发、RAG 管线闭环 |
+| HashEmbeddingProvider | 默认实现 | 零依赖、确定性测试、离线开发、RAG 管线闭环 |
+| BgeM3EmbeddingProvider | 可选实现 | 本地 BGE-M3 dense embedding，需安装 `.[bge]` 并提供本地模型路径 |
 
 HashEmbeddingProvider 不追求真实语义质量。它的作用是：
 
@@ -215,9 +219,25 @@ HashEmbeddingProvider 不追求真实语义质量。它的作用是：
 - 保持第一版无网络、无外部模型、无新依赖。
 - 为后续真实 embedding provider 留出稳定接口。
 
-因此，HashEmbeddingProvider 适合验证“RAG 架构和生命周期是否正确”，不代表最终语义召回质量。
+因此，HashEmbeddingProvider 适合验证“RAG 架构和生命周期是否正确”，不代表最终语义召回质量。BGE-M3 provider 则用于本地真实语义召回，但当前只使用 dense vector；`lexical_weights` 和 ColBERT vectors 暂不进入索引。
 
-后续适配器只记录为 future adapter，不进入 v1 registry：
+BGE-M3 推荐通过 `.env` 配置：
+
+```env
+MEMORA_BACKEND=sqlite
+MEMORA_RAG=true
+MEMORA_EMBEDDING_PROVIDER=bge
+MEMORA_EMBEDDING_MODEL=bge-m3
+MEMORA_EMBEDDING_MODEL_PATH=C:\Download\bge-m3
+MEMORA_EMBEDDING_DIMENSION=1024
+MEMORA_EMBEDDING_BATCH_SIZE=8
+MEMORA_EMBEDDING_FP16=true
+HF_OFFLINE=1
+```
+
+切换 provider、model、model path 或 dimension 后，向量索引属于派生缓存，必须运行 `rebuild-index` 重新生成。
+
+后续适配器只记录为 future adapter，不进入当前 registry：
 
 | Future adapter | 可能配置名 | 后续用途 |
 |---|---|---|

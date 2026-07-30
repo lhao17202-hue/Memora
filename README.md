@@ -10,14 +10,14 @@ It provides:
 - Working memory state helpers
 - Deterministic safety and write policy
 - Keyword retrieval and scoring
-- Optional local RAG with hash embeddings and SQLite vector storage
+- Optional local RAG with hash or BGE-M3 embeddings and SQLite vector storage
 - Embedding-backed write-time duplicate, merge, and conflict detection
 - Optional injected LLM relation judging
 - Prompt formatting for retrieved memories
 - Lifecycle cleanup, export, import, verify, rebuild, and backup commands
 - A thin CLI for local debugging
 
-Memora does not bundle hosted LLM clients, external embedding providers, hosted vector databases, or a hosted service.
+Memora does not bundle hosted LLM clients, hosted vector databases, or a hosted service. The default install is dependency-light and uses hash embeddings; real local embedding providers such as BGE-M3 are opt-in extras.
 
 ## Install For Development
 
@@ -108,7 +108,37 @@ python -m memora --root .memora --backend sqlite --rag verify
 python -m memora --root .memora --backend sqlite --rag rebuild-index
 ```
 
-RAG v1 supports only the local `hash` embedding provider, `sqlite` vector store, and `none` or `deterministic` rerankers. Future provider names such as `openai`, `cohere`, `voyage`, `qdrant`, and `chroma` are reserved but report `reserved but not implemented` if selected.
+RAG v1 supports the dependency-free local `hash` embedding provider by default, the optional local `bge` provider for BGE-M3 dense embeddings, the `sqlite` vector store, and `none` or `deterministic` rerankers. Future provider names such as `openai`, `cohere`, `voyage`, `qdrant`, and `chroma` are reserved but report `reserved but not implemented` if selected.
+
+To use a locally downloaded BGE-M3 model, install the optional extra and point Memora at the local model path. Memora does not download models by default.
+
+```bash
+pip install -e ".[bge]"
+```
+
+A local `.env` file can hold embedding and vector-index settings:
+
+```env
+MEMORA_BACKEND=sqlite
+MEMORA_RAG=true
+MEMORA_EMBEDDING_PROVIDER=bge
+MEMORA_EMBEDDING_MODEL=bge-m3
+MEMORA_EMBEDDING_MODEL_PATH=C:\Download\bge-m3
+MEMORA_EMBEDDING_DIMENSION=1024
+MEMORA_EMBEDDING_BATCH_SIZE=8
+MEMORA_EMBEDDING_FP16=true
+HF_OFFLINE=1
+```
+
+Then run commands with that env file:
+
+```bash
+python -m memora --env-file .env init
+python -m memora --env-file .env rebuild-index
+python -m memora --env-file .env search "结构化单据识别规则"
+```
+
+BGE-M3 sparse lexical weights are currently ignored; dense vectors feed the existing SQLite cosine search. After changing `embedding_provider`, `embedding_model`, `embedding_model_path`, or `embedding_dimension`, run `rebuild-index` before relying on RAG search quality.
 
 `verify` prints vector diagnostics when RAG is enabled:
 
@@ -402,6 +432,6 @@ The memory-system demo shows typed context injection before a task, task-end LLM
 
 ## MVP Boundaries
 
-This version includes a deterministic local RAG v1 path, an LLM extraction contract, embedding-backed write-time relation detection, hash embeddings, a SQLite-backed vector index, hybrid vector + keyword retrieval, write-result diagnostics, and RAG verify/rebuild diagnostics.
+This version includes a deterministic local RAG v1 path, an LLM extraction contract, embedding-backed write-time relation detection, hash embeddings, optional local BGE-M3 dense embeddings, a SQLite-backed vector index, hybrid vector + keyword retrieval, write-result diagnostics, and RAG verify/rebuild diagnostics.
 
-It does not include bundled external LLM clients, external embedding providers, hosted vector databases, model rerankers, web UI, or hosted multi-tenant service.
+It does not include bundled external LLM clients, hosted embedding APIs, hosted vector databases, model rerankers, web UI, or hosted multi-tenant service.

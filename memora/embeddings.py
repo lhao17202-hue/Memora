@@ -5,12 +5,14 @@ from __future__ import annotations
 import hashlib
 import math
 import re
-from typing import Protocol
+from pathlib import Path
+from typing import Any, Protocol
 
+from .errors import MemoryValidationError
 from .schema import MemoryItem
 
-SUPPORTED_EMBEDDING_PROVIDERS = ("hash",)
-RESERVED_EMBEDDING_PROVIDERS = ("openai", "cohere", "voyage", "sentence-transformers", "bge", "e5", "ollama")
+SUPPORTED_EMBEDDING_PROVIDERS = ("hash", "bge")
+RESERVED_EMBEDDING_PROVIDERS = ("openai", "cohere", "voyage", "sentence-transformers", "e5", "ollama")
 EMBEDDING_PROVIDER_CHOICES = SUPPORTED_EMBEDDING_PROVIDERS + RESERVED_EMBEDDING_PROVIDERS
 
 
@@ -68,3 +70,51 @@ class HashEmbeddingProvider:
         if norm == 0:
             return vector
         return [value / norm for value in vector]
+
+
+class BgeM3EmbeddingProvider:
+    name = "bge"
+
+    def __init__(
+        self,
+        model_path: str | Path | None,
+        model: str = "bge-m3",
+        dimension: int = 1024,
+        batch_size: int = 8,
+        fp16: bool = False,
+    ):
+        if not model_path:
+            raise MemoryValidationError("embedding_model_path is required when embedding_provider is 'bge'")
+        if dimension <= 0:
+            raise MemoryValidationError("embedding dimension must be > 0")
+        if batch_size <= 0:
+            raise MemoryValidationError("embedding_batch_size must be > 0")
+        try:
+            from FlagEmbedding import BGEM3FlagModel
+        except Exception as exc:  # noqa: BLE001 - optional dependency may fail during import
+            raise MemoryValidationError("embedding_provider 'bge' requires optional dependency FlagEmbedding") from exc
+        self.model = model
+        self.dimension = dimension
+        self.batch_size = batch_size
+        self.model_path = str(model_path)
+        self._model = BGEM3FlagModel(self.model_path, use_fp16=fp16)
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        result = self._model.encode(
+            sentences=texts,
+            return_dense=True,
+            return_sparse=True,
+            return_colbert_vecs=False,
+            batch_size=self.batch_size,
+        )
+        dense = result.get("dense_vecs") if isinstance(result, dict) else getattr(result, "dense_vecs", None)
+        if dense is None:
+            raise MemoryValidationError("bge embedding result missing dense_vecs")
+        vectors = dense.tolist() if hasattr(dense, "tolist") else dense
+        normalized = [[float(value) for value in vector] for vector in vectors]
+        for vector in normalized:
+            if len(vector) != self.dimension:
+                raise MemoryValidationError(f"bge embedding dimension mismatch: expected {self.dimension}, got {len(vector)}")
+        return normalized

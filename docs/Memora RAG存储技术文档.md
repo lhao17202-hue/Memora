@@ -7,18 +7,19 @@
 - 默认行为不变，未开启 RAG 时继续使用当前文件/SQLite + FTS/keyword 检索。
 - MemoryStore 继续保存完整 MemoryItem，是权威事实源。
 - 向量必须通过 VectorStore 持久化，不写入 MemoryItem 主结构。
-- EmbeddingProvider、VectorStore、Reranker 必须可插拔，但第一版只实现 deterministic/local provider。
+- EmbeddingProvider、VectorStore、Reranker 必须可插拔；默认 provider 保持 deterministic/local，BGE-M3 作为显式 opt-in 的本地 provider。
 - 所有 provider 失败时系统可降级，不影响基本记忆读写。
 
-第一版 v1 scope 精确限定为：
+当前 scope 精确限定为：
 
 - `HashEmbeddingProvider`
+- `BgeM3EmbeddingProvider`（optional `FlagEmbedding` extra，本地模型路径，dense vectors only）
 - `SQLiteVectorStore`
 - `NoOpReranker`
 - `DeterministicReranker`
 - `RagRetriever`
 
-第一版不实现、不注册、不暴露未完成 provider adapter。OpenAI、Cohere、Voyage、SentenceTransformer、BGE、E5、Ollama、sqlite-vec、Qdrant、Chroma、PGVector、FAISS、Milvus、Weaviate、CrossEncoder、LLM rerank 等只作为 future adapter backlog 记录，后续实现时再加入 registry 和 optional dependencies。
+OpenAI、Cohere、Voyage、SentenceTransformer、E5、Ollama、sqlite-vec、Qdrant、Chroma、PGVector、FAISS、Milvus、Weaviate、CrossEncoder、LLM rerank 等仍作为 future adapter backlog 记录，后续实现时再加入 registry 和 optional dependencies。
 
 ---
 
@@ -38,7 +39,7 @@ memora/
 
 | 文件 | v1 职责 |
 |---|---|
-| embeddings.py | EmbeddingProvider 抽象、HashEmbeddingProvider、embedding text/hash helpers |
+| embeddings.py | EmbeddingProvider 抽象、HashEmbeddingProvider、BgeM3EmbeddingProvider、embedding text/hash helpers |
 | vector_store.py | VectorStore 抽象、VectorSearchHit、SQLiteVectorStore |
 | reranker.py | Reranker 抽象、NoOpReranker、DeterministicReranker |
 | rag.py | RagRetriever / RagIndex，协调 MemoryStore、FTS、vector、reranker |
@@ -107,7 +108,7 @@ class MemoryConfig:
 
 | 配置 | v1 有效值 | 说明 |
 |---|---|---|
-| embedding_provider | `hash` | 只支持 deterministic hash embedding |
+| embedding_provider | `hash`, `bge` | `hash` 为默认零依赖 provider；`bge` 使用本地 BGE-M3 dense embedding |
 | vector_store | `sqlite` | 只支持 SQLiteVectorStore |
 | reranker | `none`, `deterministic` | 不接模型 reranker |
 
@@ -116,7 +117,9 @@ class MemoryConfig:
 - `rag_enabled=False` 时不初始化 embedding/vector/reranker。
 - v1 中非有效值应报清晰配置错误，不应静默 fallback 到别的 provider。
 - provider 相关密钥从环境变量读取，不写入 MemoryConfig。
-- optional dependencies 在具体 future adapter 实现时再加入。
+- BGE-M3 使用 `embedding_model_path` 指向本地模型目录；Memora 默认不下载模型。
+- `.env` 可保存 `MEMORA_*` 配置和 `HF_OFFLINE=1`，CLI 显式参数优先级最高。
+- `bge` optional extra 只在显式安装时引入 `FlagEmbedding`。
 
 ---
 
@@ -193,7 +196,7 @@ HashEmbeddingProvider 不追求真实语义效果，只保证：
 | CohereEmbeddingProvider | cohere | `cohere` | future only |
 | VoyageEmbeddingProvider | voyage | `voyageai` | future only |
 | SentenceTransformerEmbeddingProvider | sentence-transformer | `sentence-transformers` | future only |
-| BGEEmbeddingProvider | bge | `sentence-transformers` 或专用本地模型依赖 | future only |
+| BgeM3EmbeddingProvider | bge | `FlagEmbedding` optional extra + 本地模型路径 | current optional dense-only |
 | E5EmbeddingProvider | e5 | `sentence-transformers` 或专用本地模型依赖 | future only |
 | OllamaEmbeddingProvider | ollama | HTTP client / ollama local service | future only |
 
@@ -748,7 +751,7 @@ weaviate = ["weaviate-client>=4.0"]
 - keyword fallback 能命中专有名词。
 - RAG 关闭时旧测试全部通过。
 
-注意：HashEmbeddingProvider 不保证真实语义相近文本一定相互命中，因此 v1 测试不应把真实语义质量当作验收条件。真实语义召回测试应放到 OpenAI/BGE/E5 等 future adapter 阶段。
+注意：HashEmbeddingProvider 不保证真实语义相近文本一定相互命中，因此默认测试不应把真实语义质量当作验收条件。BGE-M3 的真实模型测试应通过本地模型路径和显式 marker/env var opt-in 运行，避免默认测试依赖大模型文件。
 
 ### 15.4 Rebuild
 
@@ -773,7 +776,7 @@ weaviate = ["weaviate-client>=4.0"]
 10. 增加 CLI 最小 RAG 参数。
 11. RAG v1 稳定后，再创建 future adapter 计划。
 
-第一版不做 OpenAIEmbeddingProvider optional extra，不做 BGE/E5/Qdrant/sqlite-vec 等 provider。
+当前阶段不做 OpenAIEmbeddingProvider optional extra，不做 E5/Qdrant/sqlite-vec 等 provider；BGE-M3 仅作为本地 dense embedding provider 接入，暂不实现 sparse/ColBERT 检索。
 
 ---
 

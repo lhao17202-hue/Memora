@@ -26,6 +26,9 @@ def test_python_module_help_exits_zero():
     assert "Memora" in result.stdout
     assert "init" in result.stdout
     assert "--rag" in result.stdout
+    assert "--env-file" in result.stdout
+    assert "--embedding-model-path" in result.stdout
+    assert "--embedding-batch-size" in result.stdout
     assert "openai" in result.stdout.lower()
     assert "qdrant" in result.stdout.lower()
 
@@ -315,6 +318,46 @@ def test_reserved_rag_provider_reports_clear_cli_error(tmp_path: Path):
     assert result.returncode == 1
     assert "reserved but not implemented" in result.stderr
     assert "Traceback" not in result.stderr
+
+
+def test_bge_provider_without_model_path_reports_clear_cli_error(tmp_path: Path):
+    root = tmp_path / ".memora"
+
+    result = run_cli(root, "--rag", "--embedding-provider", "bge", "init")
+
+    assert result.returncode == 1
+    assert "embedding_model_path" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_cli_loads_env_file_and_cli_overrides_it(tmp_path: Path):
+    root = tmp_path / ".memora"
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "\n".join(
+            [
+                "MEMORA_BACKEND=sqlite",
+                "MEMORA_RAG=true",
+                "MEMORA_EMBEDDING_PROVIDER=hash",
+                "MEMORA_EMBEDDING_MODEL=env-hash-model",
+                "MEMORA_EMBEDDING_DIMENSION=16",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    initialized = run_cli(root, "--env-file", str(env_path), "init")
+    saved = run_cli(root, "--env-file", str(env_path), "--embedding-dimension", "32", "save", "--type", "preference", "--name", "language", "--description", "desc", "--content", "env cli override")
+    verified = run_cli(root, "--env-file", str(env_path), "--embedding-dimension", "32", "verify")
+
+    with sqlite3.connect(root / "memora.sqlite3") as connection:
+        row = connection.execute("SELECT model, dimension FROM memory_vectors").fetchone()
+
+    assert initialized.returncode == 0
+    assert saved.returncode == 0
+    assert verified.returncode == 0
+    assert "vector_ok=True" in verified.stdout
+    assert row == ("env-hash-model", 32)
 
 
 def test_sqlite_backend_rag_cli_flow(tmp_path: Path):

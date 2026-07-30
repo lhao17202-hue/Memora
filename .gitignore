@@ -11,6 +11,7 @@ dist/
 # Local environments and tooling caches
 .venv/
 venv/
+.env
 .coverage
 htmlcov/
 .ruff_cache/

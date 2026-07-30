@@ -8,6 +8,7 @@ from typing import Any
 from .config import MemoryConfig
 from .embeddings import (
     RESERVED_EMBEDDING_PROVIDERS,
+    BgeM3EmbeddingProvider,
     EmbeddingProvider,
     HashEmbeddingProvider,
     memory_embedding_text,
@@ -39,6 +40,16 @@ class ReservedReranker:
 def build_embedding_provider(config: MemoryConfig) -> EmbeddingProvider:
     if config.embedding_provider == "hash":
         return HashEmbeddingProvider(dimension=config.embedding_dimension, model=config.embedding_model)
+    if config.embedding_provider == "bge":
+        model = config.embedding_model if config.embedding_model != "memora-hash-v1" else "bge-m3"
+        dimension = 1024 if config.embedding_dimension == 384 else config.embedding_dimension
+        return BgeM3EmbeddingProvider(
+            model_path=config.embedding_model_path,
+            model=model,
+            dimension=dimension,
+            batch_size=config.embedding_batch_size,
+            fp16=config.embedding_fp16,
+        )
     if config.embedding_provider in RESERVED_EMBEDDING_PROVIDERS:
         ReservedEmbeddingProvider(config.embedding_provider)
     raise MemoryValidationError(f"unsupported embedding_provider for RAG v1: {config.embedding_provider}")

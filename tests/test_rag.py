@@ -1,3 +1,5 @@
+import sys
+import types
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -11,12 +13,47 @@ from memora.schema import MemoryItem, MemoryQuery, MemorySearchResult
 from memora.vector_store import VectorSearchHit
 
 
-def test_rag_factories_support_only_v1_values(tmp_path):
+class _DenseResult:
+    def __init__(self, values):
+        self._values = values
+
+    def tolist(self):
+        return self._values
+
+
+class _FakeBgeModel:
+    def __init__(self, model_path, use_fp16=False):
+        self.model_path = model_path
+        self.use_fp16 = use_fp16
+
+    def encode(self, **kwargs):
+        return {"dense_vecs": _DenseResult([[1.0] * 1024 for _ in kwargs["sentences"]]), "lexical_weights": []}
+
+
+@pytest.fixture
+def fake_flag_embedding(monkeypatch):
+    module = types.ModuleType("FlagEmbedding")
+    module.BGEM3FlagModel = _FakeBgeModel
+    monkeypatch.setitem(sys.modules, "FlagEmbedding", module)
+
+
+def test_rag_factories_support_only_v1_values(tmp_path, fake_flag_embedding):
     config = MemoryConfig(root_dir=tmp_path / ".memora", rag_enabled=True)
 
     assert build_embedding_provider(config).name == "hash"
     assert build_vector_store(config).name == "sqlite"
     assert build_reranker(config).name == "deterministic"
+
+    bge = build_embedding_provider(
+        MemoryConfig(
+            rag_enabled=True,
+            embedding_provider="bge",
+            embedding_model_path="C:/Download/bge-m3",
+        )
+    )
+    assert bge.name == "bge"
+    assert bge.model == "bge-m3"
+    assert bge.dimension == 1024
 
     with pytest.raises(MemoryValidationError, match="reserved but not implemented"):
         build_embedding_provider(MemoryConfig(rag_enabled=True, embedding_provider="openai"))
@@ -52,6 +89,23 @@ def test_build_vector_metadata_tracks_hash_and_provider(tmp_path):
     assert metadata["model"] == "memora-hash-v1"
     assert metadata["dimension"] == 384
     assert metadata["text_hash"] != changed_metadata["text_hash"]
+
+
+def test_build_vector_metadata_tracks_bge_provider(fake_flag_embedding):
+    item = MemoryItem(id="mem_1", name="invoice", description="desc", type="knowledge", content="发票OCR提取规范")
+    embedder = build_embedding_provider(
+        MemoryConfig(
+            rag_enabled=True,
+            embedding_provider="bge",
+            embedding_model_path="C:/Download/bge-m3",
+        )
+    )
+
+    metadata = build_vector_metadata(item, embedder, "text")
+
+    assert metadata["provider"] == "bge"
+    assert metadata["model"] == "bge-m3"
+    assert metadata["dimension"] == 1024
 
 
 def test_config_defaults_min_semantic_score_for_rag():

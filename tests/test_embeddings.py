@@ -1,6 +1,48 @@
+import sys
+import types
+
+import pytest
+
 from memora.config import MemoryConfig
-from memora.embeddings import HashEmbeddingProvider, memory_embedding_text, sha256_text
+from memora.embeddings import (
+    BgeM3EmbeddingProvider,
+    EMBEDDING_PROVIDER_CHOICES,
+    HashEmbeddingProvider,
+    memory_embedding_text,
+    sha256_text,
+)
+from memora.errors import MemoryValidationError
 from memora.schema import MemoryItem
+
+
+class DenseResult:
+    def __init__(self, values):
+        self._values = values
+
+    def tolist(self):
+        return self._values
+
+
+class FakeBgeModel:
+    encode_calls = []
+
+    def __init__(self, model_path, use_fp16=False):
+        self.model_path = model_path
+        self.use_fp16 = use_fp16
+
+    def encode(self, **kwargs):
+        self.__class__.encode_calls.append(kwargs)
+        vectors = [[float(index + 1)] * 4 for index, _ in enumerate(kwargs["sentences"])]
+        return {"dense_vecs": DenseResult(vectors), "lexical_weights": [{"token": 1.0}]}
+
+
+@pytest.fixture
+def fake_flag_embedding(monkeypatch):
+    FakeBgeModel.encode_calls = []
+    module = types.ModuleType("FlagEmbedding")
+    module.BGEM3FlagModel = FakeBgeModel
+    monkeypatch.setitem(sys.modules, "FlagEmbedding", module)
+    return FakeBgeModel
 
 
 def test_memory_config_rag_defaults_are_disabled():
@@ -11,8 +53,16 @@ def test_memory_config_rag_defaults_are_disabled():
     assert config.embedding_provider == "hash"
     assert config.embedding_model == "memora-hash-v1"
     assert config.embedding_dimension == 384
+    assert config.embedding_model_path is None
+    assert config.embedding_batch_size == 8
+    assert config.embedding_fp16 is False
     assert config.vector_store == "sqlite"
     assert config.reranker == "deterministic"
+
+
+def test_embedding_provider_choices_include_bge():
+    assert "hash" in EMBEDDING_PROVIDER_CHOICES
+    assert "bge" in EMBEDDING_PROVIDER_CHOICES
 
 
 def test_hash_embedding_provider_is_deterministic_and_ordered():
@@ -34,6 +84,60 @@ def test_hash_embedding_empty_string_is_stable_zero_vector():
 
     assert vector == [0.0] * 8
     assert vector == provider.embed(["   "])[0]
+
+
+def test_bge_provider_requires_model_path(fake_flag_embedding):
+    with pytest.raises(MemoryValidationError, match="embedding_model_path"):
+        BgeM3EmbeddingProvider(model_path=None)
+
+
+def test_bge_provider_reports_missing_optional_dependency(monkeypatch):
+    monkeypatch.setitem(sys.modules, "FlagEmbedding", None)
+
+    with pytest.raises(MemoryValidationError, match="FlagEmbedding"):
+        BgeM3EmbeddingProvider(model_path="C:/Download/bge-m3")
+
+
+def test_bge_provider_encodes_dense_vectors_with_expected_options(fake_flag_embedding):
+    provider = BgeM3EmbeddingProvider(
+        model_path="C:/Download/bge-m3",
+        model="bge-m3",
+        dimension=4,
+        batch_size=8,
+        fp16=True,
+    )
+
+    vectors = provider.embed(["结构化单据识别规则", "发票OCR提取规范"])
+
+    assert provider.name == "bge"
+    assert provider.model == "bge-m3"
+    assert provider.dimension == 4
+    assert provider._model.model_path == "C:/Download/bge-m3"
+    assert provider._model.use_fp16 is True
+    assert vectors == [[1.0, 1.0, 1.0, 1.0], [2.0, 2.0, 2.0, 2.0]]
+    assert fake_flag_embedding.encode_calls == [
+        {
+            "sentences": ["结构化单据识别规则", "发票OCR提取规范"],
+            "return_dense": True,
+            "return_sparse": True,
+            "return_colbert_vecs": False,
+            "batch_size": 8,
+        }
+    ]
+
+
+def test_bge_provider_empty_input_does_not_call_model(fake_flag_embedding):
+    provider = BgeM3EmbeddingProvider(model_path="C:/Download/bge-m3", dimension=4)
+
+    assert provider.embed([]) == []
+    assert fake_flag_embedding.encode_calls == []
+
+
+def test_bge_provider_rejects_dimension_mismatch(fake_flag_embedding):
+    provider = BgeM3EmbeddingProvider(model_path="C:/Download/bge-m3", dimension=8)
+
+    with pytest.raises(MemoryValidationError, match="dimension"):
+        provider.embed(["结构化单据识别规则"])
 
 
 def test_memory_embedding_text_contains_searchable_memory_fields():

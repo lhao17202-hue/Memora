@@ -19,6 +19,9 @@ class MemoryConfig:
     embedding_provider: str = "hash"
     embedding_model: str = "memora-hash-v1"
     embedding_dimension: int = 384
+    embedding_model_path: str | Path | None = None
+    embedding_batch_size: int = 8
+    embedding_fp16: bool = False
     vector_store: str = "sqlite"
     vector_path: str | Path | None = None
     vector_candidate_limit: int = 50
