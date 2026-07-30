@@ -39,10 +39,12 @@ Memora 中的长期记忆仍然是经过外部 agent runtime 或抽取逻辑沉�
 
 - 默认仍使用零依赖 `HashEmbeddingProvider`。
 - 可选支持本地离线 BGE-M3 dense embedding provider。
+- 可选支持 BGE-M3 dense+sparse 输出，并在 Qdrant 中做 hybrid 检索。
+- 可选支持用户自管的 Qdrant 向量索引；Memora 不启动、不托管 Qdrant。
 - 不新增网络型 embedding provider。
-- 不新增服务型向量数据库。
 - 不新增模型 reranker。
 - `FlagEmbedding` 仅作为 `bge` optional extra，不进入默认安装依赖。
+- `qdrant-client` 仅作为 `qdrant` optional extra，不进入默认安装依赖。
 - 不注册未实现的 provider，也不写 `NotImplemented` 占位类来假装支持。
 
 ---
@@ -82,10 +84,11 @@ MemoryRuntime
 ```text
 embeddings.py
   -> HashEmbeddingProvider
-  -> BgeM3EmbeddingProvider（可选 FlagEmbedding extra，本地模型路径）
+  -> BgeM3EmbeddingProvider（可选 FlagEmbedding extra，本地模型路径；可选 sparse 输出）
 
 vector_store.py
-  -> SQLiteVectorStore
+  -> SQLiteVectorStore（dense-only）
+  -> QdrantVectorStore（可选 qdrant-client extra；dense 或 dense+sparse hybrid）
 
 reranker.py
   -> NoOpReranker / DeterministicReranker
@@ -211,7 +214,7 @@ EmbeddingProvider 是向量化生态入口。
 | Provider | 当前状态 | 用途 |
 |---|---|---|
 | HashEmbeddingProvider | 默认实现 | 零依赖、确定性测试、离线开发、RAG 管线闭环 |
-| BgeM3EmbeddingProvider | 可选实现 | 本地 BGE-M3 dense embedding，需安装 `.[bge]` 并提供本地模型路径 |
+| BgeM3EmbeddingProvider | 可选实现 | 本地 BGE-M3 dense 或 dense+sparse embedding，需安装 `.[bge]` 并提供本地模型路径 |
 
 HashEmbeddingProvider 不追求真实语义质量。它的作用是：
 
@@ -219,7 +222,7 @@ HashEmbeddingProvider 不追求真实语义质量。它的作用是：
 - 保持第一版无网络、无外部模型、无新依赖。
 - 为后续真实 embedding provider 留出稳定接口。
 
-因此，HashEmbeddingProvider 适合验证“RAG 架构和生命周期是否正确”，不代表最终语义召回质量。BGE-M3 provider 则用于本地真实语义召回，但当前只使用 dense vector；`lexical_weights` 和 ColBERT vectors 暂不进入索引。
+因此，HashEmbeddingProvider 适合验证“RAG 架构和生命周期是否正确”，不代表最终语义召回质量。BGE-M3 provider 用于本地真实语义召回：默认只请求 dense vector；当 `MEMORA_EMBEDDING_SPARSE=true` 且 `MEMORA_RETRIEVAL_MODE=hybrid` 时，会请求 `lexical_weights` 并交给 Qdrant sparse vector 参与 dense+sparse 融合。ColBERT vectors 暂不进入索引。
 
 BGE-M3 推荐通过 `.env` 配置：
 
@@ -232,6 +235,9 @@ MEMORA_EMBEDDING_MODEL_PATH=C:\Download\bge-m3
 MEMORA_EMBEDDING_DIMENSION=1024
 MEMORA_EMBEDDING_BATCH_SIZE=8
 MEMORA_EMBEDDING_FP16=true
+MEMORA_EMBEDDING_SPARSE=false
+MEMORA_VECTOR_STORE=sqlite
+MEMORA_RETRIEVAL_MODE=dense
 HF_OFFLINE=1
 ```
 
@@ -259,12 +265,15 @@ VectorStore 是向量数据库生态入口。
 
 | VectorStore | 第一版状态 | 用途 |
 |---|---|---|
-| SQLiteVectorStore | 实现 | 本地轻量持久化，可全扫 cosine |
+| SQLiteVectorStore | 实现 | 本地轻量持久化，可全扫 cosine，dense-only |
+| QdrantVectorStore | 可选实现 | 用户自管 Qdrant 服务，支持 dense-only 或 dense+sparse hybrid 检索 |
 
 说明：
 
 - 向量必须存储到 VectorStore 中。
 - SQLiteVectorStore 可以共用 SQLite 文件，但逻辑上仍然是向量数据库适配器。
+- QdrantVectorStore 使用 `qdrant-client` optional extra；Memora 不负责启动或托管 Qdrant。
+- Qdrant 中的 point payload 只保存检索 metadata，完整 MemoryItem 仍以 MemoryStore 为准。
 - MemoryStore 不应直接承担向量相似度检索职责。
 - VectorStore 不直接返回记忆正文，只返回 memory_id 和分数。
 - 所有 VectorStore 命中都必须回 MemoryStore 做二次校验。
@@ -274,7 +283,6 @@ VectorStore 是向量数据库生态入口。
 | Future adapter | 可能配置名 | 后续用途 |
 |---|---|---|
 | SQLiteVecVectorStore | sqlite-vec | SQLite 原生向量扩展，优化本地性能 |
-| QdrantVectorStore | qdrant | 本地/线上服务化向量库 |
 | ChromaVectorStore | chroma | 原型开发和本地集合管理 |
 | PGVectorStore | pgvector | PostgreSQL 统一业务数据和向量 |
 | FAISSVectorStore | faiss | 本地高性能 ANN |

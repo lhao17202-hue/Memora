@@ -29,6 +29,10 @@ def test_python_module_help_exits_zero():
     assert "--env-file" in result.stdout
     assert "--embedding-model-path" in result.stdout
     assert "--embedding-batch-size" in result.stdout
+    assert "--embedding-sparse" in result.stdout
+    assert "--retrieval-mode" in result.stdout
+    assert "--qdrant-url" in result.stdout
+    assert "--qdrant-collection" in result.stdout
     assert "openai" in result.stdout.lower()
     assert "qdrant" in result.stdout.lower()
 
@@ -358,6 +362,27 @@ def test_cli_loads_env_file_and_cli_overrides_it(tmp_path: Path):
     assert verified.returncode == 0
     assert "vector_ok=True" in verified.stdout
     assert row == ("env-hash-model", 32)
+
+
+def test_qdrant_cli_missing_dependency_reports_clear_error(tmp_path: Path):
+    root = tmp_path / ".memora"
+
+    result = run_cli(root, "--rag", "--vector-store", "qdrant", "init")
+
+    assert result.returncode == 1
+    assert "qdrant-client" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_hybrid_cli_without_sparse_reports_clear_error(tmp_path: Path):
+    root = tmp_path / ".memora"
+
+    result = run_cli(root, "--rag", "--retrieval-mode", "hybrid", "init")
+
+    assert result.returncode == 1
+    assert "hybrid" in result.stderr
+    assert "embedding_sparse" in result.stderr
+    assert "Traceback" not in result.stderr
 
 
 def test_sqlite_backend_rag_cli_flow(tmp_path: Path):

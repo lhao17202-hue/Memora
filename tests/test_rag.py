@@ -57,7 +57,7 @@ def test_rag_factories_support_only_v1_values(tmp_path, fake_flag_embedding):
 
     with pytest.raises(MemoryValidationError, match="reserved but not implemented"):
         build_embedding_provider(MemoryConfig(rag_enabled=True, embedding_provider="openai"))
-    with pytest.raises(MemoryValidationError, match="reserved but not implemented"):
+    with pytest.raises(MemoryValidationError, match="qdrant-client"):
         build_vector_store(MemoryConfig(rag_enabled=True, vector_store="qdrant"))
     with pytest.raises(MemoryValidationError, match="reserved but not implemented"):
         build_reranker(MemoryConfig(rag_enabled=True, reranker="llm"))

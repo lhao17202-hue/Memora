@@ -69,7 +69,7 @@ class MemoryManager:
         if self.config.rag_enabled and embedder is not None:
             vector_store = build_vector_store(self.config)
             reranker = build_reranker(self.config)
-            self.rag_index = RagIndex(self.memory_store, embedder, vector_store)
+            self.rag_index = RagIndex(self.memory_store, embedder, vector_store, self.config)
             candidate_store = self.memory_store if isinstance(self.memory_store, MemoryCandidateStore) else None
             self.rag_retriever = RagRetriever(
                 self.memory_store,

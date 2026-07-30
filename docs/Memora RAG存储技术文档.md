@@ -13,13 +13,14 @@
 当前 scope 精确限定为：
 
 - `HashEmbeddingProvider`
-- `BgeM3EmbeddingProvider`（optional `FlagEmbedding` extra，本地模型路径，dense vectors only）
-- `SQLiteVectorStore`
+- `BgeM3EmbeddingProvider`（optional `FlagEmbedding` extra，本地模型路径，dense 默认，可选 sparse lexical weights）
+- `SQLiteVectorStore`（dense-only）
+- `QdrantVectorStore`（optional `qdrant-client` extra，dense 或 dense+sparse hybrid）
 - `NoOpReranker`
 - `DeterministicReranker`
 - `RagRetriever`
 
-OpenAI、Cohere、Voyage、SentenceTransformer、E5、Ollama、sqlite-vec、Qdrant、Chroma、PGVector、FAISS、Milvus、Weaviate、CrossEncoder、LLM rerank 等仍作为 future adapter backlog 记录，后续实现时再加入 registry 和 optional dependencies。
+OpenAI、Cohere、Voyage、SentenceTransformer、E5、Ollama、sqlite-vec、Chroma、PGVector、FAISS、Milvus、Weaviate、CrossEncoder、LLM rerank 等仍作为 future adapter backlog 记录，后续实现时再加入 registry 和 optional dependencies。
 
 ---
 
@@ -40,7 +41,7 @@ memora/
 | 文件 | v1 职责 |
 |---|---|
 | embeddings.py | EmbeddingProvider 抽象、HashEmbeddingProvider、BgeM3EmbeddingProvider、embedding text/hash helpers |
-| vector_store.py | VectorStore 抽象、VectorSearchHit、SQLiteVectorStore |
+| vector_store.py | VectorStore 抽象、VectorSearchHit、SQLiteVectorStore、QdrantVectorStore |
 | reranker.py | Reranker 抽象、NoOpReranker、DeterministicReranker |
 | rag.py | RagRetriever / RagIndex，协调 MemoryStore、FTS、vector、reranker |
 
@@ -109,7 +110,7 @@ class MemoryConfig:
 | 配置 | v1 有效值 | 说明 |
 |---|---|---|
 | embedding_provider | `hash`, `bge` | `hash` 为默认零依赖 provider；`bge` 使用本地 BGE-M3 dense embedding |
-| vector_store | `sqlite` | 只支持 SQLiteVectorStore |
+| vector_store | `sqlite`, `qdrant` | `sqlite` 为默认 dense-only 本地索引；`qdrant` 为 optional extra，支持 dense 或 hybrid |
 | reranker | `none`, `deterministic` | 不接模型 reranker |
 
 配置原则：
@@ -135,8 +136,9 @@ class EmbeddingProvider(Protocol):
     name: str
     model: str
     dimension: int
+    supports_sparse: bool
 
-    def embed(self, texts: list[str]) -> list[list[float]]:
+    def embed(self, texts: list[str]) -> list[EmbeddingVector]:
         ...
 ```
 
@@ -173,7 +175,9 @@ class HashEmbeddingProvider:
     model = "memora-hash-v1"
     dimension = 384
 
-    def embed(self, texts: list[str]) -> list[list[float]]:
+    supports_sparse = False
+
+    def embed(self, texts: list[str]) -> list[EmbeddingVector]:
         # 使用稳定 hash 生成确定性向量，仅用于测试和离线开发。
         ...
 ```
@@ -196,7 +200,7 @@ HashEmbeddingProvider 不追求真实语义效果，只保证：
 | CohereEmbeddingProvider | cohere | `cohere` | future only |
 | VoyageEmbeddingProvider | voyage | `voyageai` | future only |
 | SentenceTransformerEmbeddingProvider | sentence-transformer | `sentence-transformers` | future only |
-| BgeM3EmbeddingProvider | bge | `FlagEmbedding` optional extra + 本地模型路径 | current optional dense-only |
+| BgeM3EmbeddingProvider | bge | `FlagEmbedding` optional extra + 本地模型路径 | current optional dense / dense+sparse |
 | E5EmbeddingProvider | e5 | `sentence-transformers` 或专用本地模型依赖 | future only |
 | OllamaEmbeddingProvider | ollama | HTTP client / ollama local service | future only |
 
@@ -323,7 +327,7 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
     ...
 ```
 
-这对轻量个人记忆和 v1 管线验证足够，后续再替换为 sqlite-vec、FAISS 或 Qdrant。
+这对轻量个人记忆和 v1 管线验证足够；需要服务化向量索引或 dense+sparse hybrid 时，可选择 QdrantVectorStore。后续还可以替换为 sqlite-vec、FAISS 等。
 
 ### 5.5 Future VectorStore adapters
 
@@ -332,7 +336,7 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
 | Future adapter | 可能配置名 | 后续依赖/extra | 状态 |
 |---|---|---|---|
 | SQLiteVecVectorStore | sqlite-vec | sqlite-vec extension | future only |
-| QdrantVectorStore | qdrant | `qdrant-client` | future only |
+| QdrantVectorStore | qdrant | `qdrant-client` | current optional dense / hybrid |
 | ChromaVectorStore | chroma | `chromadb` | future only |
 | PGVectorStore | pgvector | `psycopg`, `pgvector` | future only |
 | FAISSVectorStore | faiss | `faiss-cpu` | future only |
@@ -698,7 +702,7 @@ python -m memora --root .memora --backend sqlite --rag search "用户喜欢什�
 python -m memora --root .memora --backend sqlite --rag rebuild-index
 ```
 
-第一版不要暴露 future provider choices。OpenAI、Qdrant、CrossEncoder 等 CLI choices 等具体 adapter 实现时再加入。
+第一版不要暴露未实现的 future provider choices。OpenAI、CrossEncoder 等 CLI choices 等具体 adapter 实现时再加入；Qdrant 已作为 optional vector store 暴露，缺少 `qdrant-client` 时必须给出清晰错误。
 
 ---
 
@@ -776,7 +780,7 @@ weaviate = ["weaviate-client>=4.0"]
 10. 增加 CLI 最小 RAG 参数。
 11. RAG v1 稳定后，再创建 future adapter 计划。
 
-当前阶段不做 OpenAIEmbeddingProvider optional extra，不做 E5/Qdrant/sqlite-vec 等 provider；BGE-M3 仅作为本地 dense embedding provider 接入，暂不实现 sparse/ColBERT 检索。
+当前阶段不做 OpenAIEmbeddingProvider optional extra，不做 E5/sqlite-vec 等 provider；BGE-M3 支持本地 dense embedding，并可在 Qdrant hybrid 模式下输出 sparse lexical weights。当前不实现 ColBERT 检索。
 
 ---
 

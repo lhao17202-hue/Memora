@@ -108,15 +108,17 @@ python -m memora --root .memora --backend sqlite --rag verify
 python -m memora --root .memora --backend sqlite --rag rebuild-index
 ```
 
-RAG v1 supports the dependency-free local `hash` embedding provider by default, the optional local `bge` provider for BGE-M3 dense embeddings, the `sqlite` vector store, and `none` or `deterministic` rerankers. Future provider names such as `openai`, `cohere`, `voyage`, `qdrant`, and `chroma` are reserved but report `reserved but not implemented` if selected.
+RAG v1 supports the dependency-free local `hash` embedding provider by default, the optional local `bge` provider for BGE-M3 embeddings, the local `sqlite` vector store, the optional `qdrant` vector store, and `none` or `deterministic` rerankers. Future embedding provider names such as `openai`, `cohere`, and `voyage`, and future vector stores such as `chroma`, remain reserved but report `reserved but not implemented` if selected.
 
-To use a locally downloaded BGE-M3 model, install the optional extra and point Memora at the local model path. Memora does not download models by default.
+To use a locally downloaded BGE-M3 model or Qdrant, install the optional extras you need. Memora does not download models and does not start or manage a Qdrant server.
 
 ```bash
 pip install -e ".[bge]"
+pip install -e ".[qdrant]"
+pip install -e ".[bge,qdrant]"
 ```
 
-A local `.env` file can hold embedding and vector-index settings:
+A local `.env` file can hold embedding and vector-index settings. Dense-only BGE with SQLite looks like:
 
 ```env
 MEMORA_BACKEND=sqlite
@@ -127,6 +129,42 @@ MEMORA_EMBEDDING_MODEL_PATH=C:\Download\bge-m3
 MEMORA_EMBEDDING_DIMENSION=1024
 MEMORA_EMBEDDING_BATCH_SIZE=8
 MEMORA_EMBEDDING_FP16=true
+MEMORA_EMBEDDING_SPARSE=false
+MEMORA_VECTOR_STORE=sqlite
+MEMORA_RETRIEVAL_MODE=dense
+HF_OFFLINE=1
+```
+
+Dense-only Qdrant uses Qdrant as the derived vector index while MemoryStore remains authoritative:
+
+```env
+MEMORA_BACKEND=sqlite
+MEMORA_RAG=true
+MEMORA_VECTOR_STORE=qdrant
+MEMORA_QDRANT_URL=http://localhost:6333
+MEMORA_QDRANT_COLLECTION=memora_memories
+MEMORA_EMBEDDING_PROVIDER=bge
+MEMORA_EMBEDDING_MODEL_PATH=C:\Download\bge-m3
+MEMORA_EMBEDDING_DIMENSION=1024
+MEMORA_EMBEDDING_SPARSE=false
+MEMORA_RETRIEVAL_MODE=dense
+HF_OFFLINE=1
+```
+
+Hybrid Qdrant retrieval requests BGE-M3 sparse lexical weights and uses Qdrant-side dense+sparse fusion:
+
+```env
+MEMORA_BACKEND=sqlite
+MEMORA_RAG=true
+MEMORA_VECTOR_STORE=qdrant
+MEMORA_QDRANT_URL=http://localhost:6333
+MEMORA_QDRANT_COLLECTION=memora_memories
+MEMORA_EMBEDDING_PROVIDER=bge
+MEMORA_EMBEDDING_MODEL_PATH=C:\Download\bge-m3
+MEMORA_EMBEDDING_DIMENSION=1024
+MEMORA_EMBEDDING_SPARSE=true
+MEMORA_RETRIEVAL_MODE=hybrid
+MEMORA_HYBRID_PREFETCH_LIMIT=100
 HF_OFFLINE=1
 ```
 
@@ -138,7 +176,7 @@ python -m memora --env-file .env rebuild-index
 python -m memora --env-file .env search "结构化单据识别规则"
 ```
 
-BGE-M3 sparse lexical weights are currently ignored; dense vectors feed the existing SQLite cosine search. After changing `embedding_provider`, `embedding_model`, `embedding_model_path`, or `embedding_dimension`, run `rebuild-index` before relying on RAG search quality.
+SQLite ignores sparse vectors and uses dense cosine search. Qdrant hybrid uses sparse vectors only when both `MEMORA_EMBEDDING_SPARSE=true` and `MEMORA_RETRIEVAL_MODE=hybrid` are set. After changing `embedding_provider`, `embedding_model`, `embedding_model_path`, `embedding_dimension`, `vector_store`, or sparse/hybrid mode, run `rebuild-index` before relying on RAG search quality.
 
 `verify` prints vector diagnostics when RAG is enabled:
 
@@ -432,6 +470,6 @@ The memory-system demo shows typed context injection before a task, task-end LLM
 
 ## MVP Boundaries
 
-This version includes a deterministic local RAG v1 path, an LLM extraction contract, embedding-backed write-time relation detection, hash embeddings, optional local BGE-M3 dense embeddings, a SQLite-backed vector index, hybrid vector + keyword retrieval, write-result diagnostics, and RAG verify/rebuild diagnostics.
+This version includes a deterministic local RAG v1 path, an LLM extraction contract, embedding-backed write-time relation detection, hash embeddings, optional local BGE-M3 dense or dense+sparse embeddings, SQLite and optional Qdrant vector indexes, hybrid vector + keyword retrieval, write-result diagnostics, and RAG verify/rebuild diagnostics.
 
-It does not include bundled external LLM clients, hosted embedding APIs, hosted vector databases, model rerankers, web UI, or hosted multi-tenant service.
+It does not include bundled external LLM clients, hosted embedding APIs, a bundled/managed Qdrant server, model rerankers, web UI, or hosted multi-tenant service.
