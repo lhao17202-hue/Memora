@@ -37,6 +37,7 @@ from .sqlite_store import SQLiteMemoryStore
 from .stores import FileMemoryStore, FileSessionStore, MemoryCandidateStore, MemoryStore, SessionStore
 from .taxonomy import PINNED_CONTEXT_TYPES, configured_default_weight
 from .utils import estimate_tokens, now_utc, slugify
+from .vector_store import VectorStore
 
 
 class MemoryManager:
@@ -46,6 +47,7 @@ class MemoryManager:
         memory_store: MemoryStore | None = None,
         session_store: SessionStore | None = None,
         relation_judge: MemoryRelationJudge | None = None,
+        vector_store: VectorStore | None = None,
     ):
         self.config = config or MemoryConfig()
         self.memory_store = memory_store or self._build_memory_store()
@@ -67,15 +69,15 @@ class MemoryManager:
         if relation_resolution_enabled and embedder is not None:
             self.relation_resolver = SemanticMemoryRelationResolver(embedder, self.config)
         if self.config.rag_enabled and embedder is not None:
-            vector_store = build_vector_store(self.config)
+            resolved_vector_store = vector_store or build_vector_store(self.config)
             reranker = build_reranker(self.config)
-            self.rag_index = RagIndex(self.memory_store, embedder, vector_store, self.config)
+            self.rag_index = RagIndex(self.memory_store, embedder, resolved_vector_store, self.config)
             candidate_store = self.memory_store if isinstance(self.memory_store, MemoryCandidateStore) else None
             self.rag_retriever = RagRetriever(
                 self.memory_store,
                 candidate_store,
                 embedder,
-                vector_store,
+                resolved_vector_store,
                 self.retriever,
                 reranker,
                 self.config,

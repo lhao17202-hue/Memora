@@ -19,7 +19,7 @@ from .reranker import RESERVED_RERANKERS, DeterministicReranker, NoOpReranker, R
 from .retriever import MemoryRetriever
 from .schema import MemoryItem, MemoryQuery, MemorySearchResult
 from .stores import MemoryCandidateStore, MemoryStore
-from .vector_store import RESERVED_VECTOR_STORES, QdrantVectorStore, SQLiteVectorStore, VectorSearchHit, VectorStore
+from .vector_store import RESERVED_VECTOR_STORES, QdrantVectorStore, QdrantVectorStoreConfig, SQLiteVectorStore, VectorSearchHit, VectorStore
 
 
 class ReservedEmbeddingProvider:
@@ -76,7 +76,13 @@ def build_vector_store(config: MemoryConfig) -> VectorStore:
     if config.vector_store == "sqlite":
         return SQLiteVectorStore(config)
     if config.vector_store == "qdrant":
-        return QdrantVectorStore(config)
+        qdrant_config = QdrantVectorStoreConfig.from_options(
+            config.vector_store_options,
+            dimension=config.embedding_dimension,
+            retrieval_mode=config.retrieval_mode,
+            hybrid_prefetch_limit=config.hybrid_prefetch_limit,
+        )
+        return QdrantVectorStore(qdrant_config)
     if config.vector_store in RESERVED_VECTOR_STORES:
         ReservedVectorStore(config.vector_store)
     raise MemoryValidationError(f"unsupported vector_store for RAG v1: {config.vector_store}")

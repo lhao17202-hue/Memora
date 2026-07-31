@@ -13,8 +13,6 @@ _BOOL_FIELDS = {
     "MEMORA_FTS_ENABLED": "fts_enabled",
     "MEMORA_EMBEDDING_FP16": "embedding_fp16",
     "MEMORA_EMBEDDING_SPARSE": "embedding_sparse",
-    "MEMORA_QDRANT_PREFER_GRPC": "qdrant_prefer_grpc",
-    "MEMORA_QDRANT_RECREATE_COLLECTION": "qdrant_recreate_collection",
     "MEMORA_SEMANTIC_WRITE_RELATIONS": "semantic_write_relations_enabled",
 }
 
@@ -23,7 +21,6 @@ _INT_FIELDS = {
     "MEMORA_EMBEDDING_DIMENSION": "embedding_dimension",
     "MEMORA_EMBEDDING_BATCH_SIZE": "embedding_batch_size",
     "MEMORA_HYBRID_PREFETCH_LIMIT": "hybrid_prefetch_limit",
-    "MEMORA_QDRANT_PORT": "qdrant_port",
     "MEMORA_VECTOR_CANDIDATE_LIMIT": "vector_candidate_limit",
     "MEMORA_KEYWORD_CANDIDATE_LIMIT": "keyword_candidate_limit",
     "MEMORA_RERANK_CANDIDATE_LIMIT": "rerank_candidate_limit",
@@ -34,7 +31,6 @@ _INT_FIELDS = {
 
 _FLOAT_FIELDS = {
     "MEMORA_MIN_SEMANTIC_SCORE": "min_semantic_score",
-    "MEMORA_QDRANT_TIMEOUT": "qdrant_timeout",
     "MEMORA_SEMANTIC_RELATION_THRESHOLD": "semantic_relation_threshold",
     "MEMORA_SEMANTIC_MERGE_THRESHOLD": "semantic_merge_threshold",
     "MEMORA_SEMANTIC_CONFLICT_THRESHOLD": "semantic_conflict_threshold",
@@ -50,14 +46,32 @@ _STRING_FIELDS = {
     "MEMORA_VECTOR_STORE": "vector_store",
     "MEMORA_VECTOR_PATH": "vector_path",
     "MEMORA_RETRIEVAL_MODE": "retrieval_mode",
-    "MEMORA_QDRANT_URL": "qdrant_url",
-    "MEMORA_QDRANT_HOST": "qdrant_host",
-    "MEMORA_QDRANT_API_KEY": "qdrant_api_key",
-    "MEMORA_QDRANT_COLLECTION": "qdrant_collection",
     "MEMORA_RERANKER": "reranker",
 }
 
+_VECTOR_STORE_BOOL_OPTIONS = {
+    "MEMORA_VECTOR_STORE_PREFER_GRPC": "prefer_grpc",
+    "MEMORA_VECTOR_STORE_RECREATE_COLLECTION": "recreate_collection",
+}
+
+_VECTOR_STORE_INT_OPTIONS = {
+    "MEMORA_VECTOR_STORE_PORT": "port",
+}
+
+_VECTOR_STORE_FLOAT_OPTIONS = {
+    "MEMORA_VECTOR_STORE_TIMEOUT": "timeout",
+}
+
+_VECTOR_STORE_STRING_OPTIONS = {
+    "MEMORA_VECTOR_STORE_URL": "url",
+    "MEMORA_VECTOR_STORE_HOST": "host",
+    "MEMORA_VECTOR_STORE_API_KEY": "api_key",
+    "MEMORA_VECTOR_STORE_COLLECTION": "collection",
+}
+
+_VECTOR_STORE_OPTIONS = _VECTOR_STORE_BOOL_OPTIONS | _VECTOR_STORE_INT_OPTIONS | _VECTOR_STORE_FLOAT_OPTIONS | _VECTOR_STORE_STRING_OPTIONS
 _ENV_TO_CONFIG = _STRING_FIELDS | _BOOL_FIELDS | _INT_FIELDS | _FLOAT_FIELDS
+_ENV_KEYS = set(_ENV_TO_CONFIG) | set(_VECTOR_STORE_OPTIONS)
 
 _OS_ENV_KEYS = {"HF_OFFLINE"}
 
@@ -86,7 +100,7 @@ def load_env_file(path: str | Path = ".env") -> dict[str, str]:
 
 def merge_env(file_env: Mapping[str, str]) -> dict[str, str]:
     merged = dict(file_env)
-    for key in set(_ENV_TO_CONFIG) | _OS_ENV_KEYS:
+    for key in _ENV_KEYS | _OS_ENV_KEYS:
         if key in os.environ:
             merged[key] = os.environ[key]
     return merged
@@ -100,24 +114,33 @@ def apply_env_to_os(env: Mapping[str, str]) -> None:
 
 def config_kwargs_from_env(env: Mapping[str, str]) -> dict[str, object]:
     kwargs: dict[str, object] = {}
+    vector_store_options: dict[str, object] = {}
     for key, value in env.items():
         field = _ENV_TO_CONFIG.get(key)
-        if field is None:
+        if field is not None:
+            if key in _BOOL_FIELDS:
+                kwargs[field] = _parse_bool(value, key)
+            elif key in _INT_FIELDS:
+                kwargs[field] = _parse_int(value, key)
+            elif key in _FLOAT_FIELDS:
+                kwargs[field] = _parse_float(value, key)
+            else:
+                kwargs[field] = value
             continue
-        if key in _BOOL_FIELDS:
-            kwargs[field] = _parse_bool(value, key)
-        elif key in _INT_FIELDS:
-            try:
-                kwargs[field] = int(value)
-            except ValueError as exc:
-                raise MemoryValidationError(f"invalid integer value for {key}: {value}") from exc
-        elif key in _FLOAT_FIELDS:
-            try:
-                kwargs[field] = float(value)
-            except ValueError as exc:
-                raise MemoryValidationError(f"invalid float value for {key}: {value}") from exc
+
+        option = _VECTOR_STORE_OPTIONS.get(key)
+        if option is None:
+            continue
+        if key in _VECTOR_STORE_BOOL_OPTIONS:
+            vector_store_options[option] = _parse_bool(value, key)
+        elif key in _VECTOR_STORE_INT_OPTIONS:
+            vector_store_options[option] = _parse_int(value, key)
+        elif key in _VECTOR_STORE_FLOAT_OPTIONS:
+            vector_store_options[option] = _parse_float(value, key)
         else:
-            kwargs[field] = value
+            vector_store_options[option] = value
+    if vector_store_options:
+        kwargs["vector_store_options"] = vector_store_options
     return kwargs
 
 
@@ -128,3 +151,17 @@ def _parse_bool(value: str, key: str) -> bool:
     if lowered in _FALSE_VALUES:
         return False
     raise MemoryValidationError(f"invalid boolean value for {key}: {value}")
+
+
+def _parse_int(value: str, key: str) -> int:
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise MemoryValidationError(f"invalid integer value for {key}: {value}") from exc
+
+
+def _parse_float(value: str, key: str) -> float:
+    try:
+        return float(value)
+    except ValueError as exc:
+        raise MemoryValidationError(f"invalid float value for {key}: {value}") from exc

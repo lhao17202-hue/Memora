@@ -8,7 +8,7 @@ import sqlite3
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -23,6 +23,44 @@ VECTOR_STORE_CHOICES = SUPPORTED_VECTOR_STORES + RESERVED_VECTOR_STORES
 
 QDRANT_DENSE_VECTOR_NAME = "dense"
 QDRANT_SPARSE_VECTOR_NAME = "sparse"
+
+
+@dataclass(frozen=True)
+class QdrantVectorStoreConfig:
+    url: str | None = None
+    host: str = "localhost"
+    port: int = 6333
+    api_key: str | None = None
+    collection: str = "memora_memories"
+    timeout: float = 5.0
+    prefer_grpc: bool = False
+    recreate_collection: bool = False
+    dimension: int = 384
+    retrieval_mode: str = "dense"
+    hybrid_prefetch_limit: int = 100
+
+    @classmethod
+    def from_options(
+        cls,
+        options: dict[str, object] | None,
+        *,
+        dimension: int,
+        retrieval_mode: str,
+        hybrid_prefetch_limit: int,
+    ) -> "QdrantVectorStoreConfig":
+        values = dict(options or {})
+        allowed = {field.name for field in fields(cls)} - {"dimension", "retrieval_mode", "hybrid_prefetch_limit"}
+        unknown = sorted(set(values) - allowed)
+        if unknown:
+            raise MemoryValidationError(f"unknown vector_store_options for qdrant: {', '.join(unknown)}")
+        values.update(
+            {
+                "dimension": dimension,
+                "retrieval_mode": retrieval_mode,
+                "hybrid_prefetch_limit": hybrid_prefetch_limit,
+            }
+        )
+        return cls(**values)
 
 
 @dataclass
@@ -238,36 +276,36 @@ class SQLiteVectorStore:
 class QdrantVectorStore:
     name = "qdrant"
 
-    def __init__(self, config: MemoryConfig):
+    def __init__(self, config: QdrantVectorStoreConfig):
         self.config = config
         try:
             from qdrant_client import QdrantClient, models
         except Exception as exc:  # noqa: BLE001 - optional dependency may fail during import
             raise MemoryValidationError("vector_store 'qdrant' requires optional dependency qdrant-client; install with: pip install -e \".[qdrant]\"") from exc
         self.models = models
-        self.collection = config.qdrant_collection
+        self.collection = config.collection
         client_kwargs: dict[str, Any] = {
-            "api_key": config.qdrant_api_key,
-            "timeout": config.qdrant_timeout,
-            "prefer_grpc": config.qdrant_prefer_grpc,
+            "api_key": config.api_key,
+            "timeout": config.timeout,
+            "prefer_grpc": config.prefer_grpc,
         }
-        if config.qdrant_url:
-            client_kwargs["url"] = config.qdrant_url
+        if config.url:
+            client_kwargs["url"] = config.url
         else:
-            client_kwargs["host"] = config.qdrant_host
-            client_kwargs["port"] = config.qdrant_port
+            client_kwargs["host"] = config.host
+            client_kwargs["port"] = config.port
         self.client = QdrantClient(**{key: value for key, value in client_kwargs.items() if value is not None})
 
     def init_storage(self) -> None:
         exists = self._collection_exists()
-        if exists and self.config.qdrant_recreate_collection:
+        if exists and self.config.recreate_collection:
             self.client.delete_collection(collection_name=self.collection)
             exists = False
         if exists:
             self._validate_collection()
             return
         vectors_config = {
-            QDRANT_DENSE_VECTOR_NAME: self.models.VectorParams(size=self.config.embedding_dimension, distance=self.models.Distance.COSINE)
+            QDRANT_DENSE_VECTOR_NAME: self.models.VectorParams(size=self.config.dimension, distance=self.models.Distance.COSINE)
         }
         kwargs: dict[str, Any] = {"collection_name": self.collection, "vectors_config": vectors_config}
         if self.config.retrieval_mode == "hybrid":
@@ -366,8 +404,8 @@ class QdrantVectorStore:
         if isinstance(vectors, dict):
             dense = vectors.get(QDRANT_DENSE_VECTOR_NAME)
             size = getattr(dense, "size", None) if dense is not None else None
-            if size is not None and int(size) != self.config.embedding_dimension:
-                raise MemoryValidationError(f"qdrant collection '{self.collection}' dense vector dimension mismatch: expected {self.config.embedding_dimension}, got {size}")
+            if size is not None and int(size) != self.config.dimension:
+                raise MemoryValidationError(f"qdrant collection '{self.collection}' dense vector dimension mismatch: expected {self.config.dimension}, got {size}")
         if self.config.retrieval_mode == "hybrid":
             sparse_vectors = getattr(config, "sparse_vectors", None)
             if isinstance(sparse_vectors, dict) and QDRANT_SPARSE_VECTOR_NAME not in sparse_vectors:

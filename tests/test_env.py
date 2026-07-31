@@ -12,7 +12,7 @@ def test_load_env_file_parses_simple_values(tmp_path):
         """
 # comment
 MEMORA_RAG=true
-MEMORA_EMBEDDING_MODEL_PATH=\"C:\\Download\\bge-m3\"
+MEMORA_EMBEDDING_MODEL_PATH="C:\Download\bge-m3"
 MEMORA_EMBEDDING_MODEL='bge-m3'
 
 MEMORA_EMBEDDING_BATCH_SIZE=8
@@ -24,7 +24,7 @@ MEMORA_EMBEDDING_BATCH_SIZE=8
 
     assert values == {
         "MEMORA_RAG": "true",
-        "MEMORA_EMBEDDING_MODEL_PATH": "C:\\Download\\bge-m3",
+        "MEMORA_EMBEDDING_MODEL_PATH": "C:\Download\bge-m3",
         "MEMORA_EMBEDDING_MODEL": "bge-m3",
         "MEMORA_EMBEDDING_BATCH_SIZE": "8",
     }
@@ -44,11 +44,12 @@ def test_config_kwargs_from_env_coerces_memora_values():
             "MEMORA_RETRIEVAL_MODE": "hybrid",
             "MEMORA_HYBRID_PREFETCH_LIMIT": "100",
             "MEMORA_MIN_SEMANTIC_SCORE": "0.30",
-            "MEMORA_QDRANT_URL": "http://localhost:6333",
-            "MEMORA_QDRANT_PORT": "6333",
-            "MEMORA_QDRANT_COLLECTION": "memora_memories",
-            "MEMORA_QDRANT_TIMEOUT": "5.5",
-            "MEMORA_QDRANT_PREFER_GRPC": "false",
+            "MEMORA_VECTOR_STORE": "qdrant",
+            "MEMORA_VECTOR_STORE_URL": "http://localhost:6333",
+            "MEMORA_VECTOR_STORE_PORT": "6333",
+            "MEMORA_VECTOR_STORE_COLLECTION": "memora_memories",
+            "MEMORA_VECTOR_STORE_TIMEOUT": "5.5",
+            "MEMORA_VECTOR_STORE_PREFER_GRPC": "false",
         }
     )
 
@@ -64,20 +65,26 @@ def test_config_kwargs_from_env_coerces_memora_values():
         "retrieval_mode": "hybrid",
         "hybrid_prefetch_limit": 100,
         "min_semantic_score": 0.30,
-        "qdrant_url": "http://localhost:6333",
-        "qdrant_port": 6333,
-        "qdrant_collection": "memora_memories",
-        "qdrant_timeout": 5.5,
-        "qdrant_prefer_grpc": False,
+        "vector_store": "qdrant",
+        "vector_store_options": {
+            "url": "http://localhost:6333",
+            "port": 6333,
+            "collection": "memora_memories",
+            "timeout": 5.5,
+            "prefer_grpc": False,
+        },
     }
 
 
 def test_config_kwargs_from_env_reports_invalid_values():
-    with pytest.raises(MemoryValidationError, match="MEMORA_QDRANT_PORT"):
-        config_kwargs_from_env({"MEMORA_QDRANT_PORT": "abc"})
+    with pytest.raises(MemoryValidationError, match="MEMORA_VECTOR_STORE_PORT"):
+        config_kwargs_from_env({"MEMORA_VECTOR_STORE_PORT": "abc"})
 
     with pytest.raises(MemoryValidationError, match="MEMORA_EMBEDDING_SPARSE"):
         config_kwargs_from_env({"MEMORA_EMBEDDING_SPARSE": "maybe"})
+
+    with pytest.raises(MemoryValidationError, match="MEMORA_VECTOR_STORE_PREFER_GRPC"):
+        config_kwargs_from_env({"MEMORA_VECTOR_STORE_PREFER_GRPC": "maybe"})
 
 
 def test_merge_env_gives_process_env_precedence(monkeypatch):
@@ -87,6 +94,14 @@ def test_merge_env_gives_process_env_precedence(monkeypatch):
 
     assert merged["MEMORA_EMBEDDING_PROVIDER"] == "hash"
     assert merged["MEMORA_RAG"] == "true"
+
+
+def test_merge_env_includes_vector_store_option_keys(monkeypatch):
+    monkeypatch.setenv("MEMORA_VECTOR_STORE_COLLECTION", "from-process")
+
+    merged = merge_env({"MEMORA_VECTOR_STORE_COLLECTION": "from-file"})
+
+    assert merged["MEMORA_VECTOR_STORE_COLLECTION"] == "from-process"
 
 
 def test_apply_env_to_os_sets_hf_offline_without_overriding(monkeypatch):

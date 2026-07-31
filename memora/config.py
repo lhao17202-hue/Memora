@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .taxonomy import MEMORY_TYPE_POLICIES
@@ -25,16 +25,9 @@ class MemoryConfig:
     embedding_sparse: bool = False
     vector_store: str = "sqlite"
     vector_path: str | Path | None = None
+    vector_store_options: dict[str, object] = field(default_factory=dict)
     retrieval_mode: str = "dense"
     hybrid_prefetch_limit: int = 100
-    qdrant_url: str | None = None
-    qdrant_host: str = "localhost"
-    qdrant_port: int = 6333
-    qdrant_api_key: str | None = None
-    qdrant_collection: str = "memora_memories"
-    qdrant_timeout: float = 5.0
-    qdrant_prefer_grpc: bool = False
-    qdrant_recreate_collection: bool = False
     vector_candidate_limit: int = 50
     keyword_candidate_limit: int = 50
     min_semantic_score: float = 0.25
