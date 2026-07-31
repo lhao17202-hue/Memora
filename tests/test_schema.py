@@ -78,6 +78,16 @@ def test_memory_config_defaults():
     assert config.sqlite_path is None
     assert config.fts_enabled is True
     assert config.fts_candidate_limit == 100
+    assert config.vector_store == "sqlite"
+    assert config.vector_store_options == {}
+    assert not hasattr(config, "qdrant_url")
+    assert not hasattr(config, "qdrant_host")
+    assert not hasattr(config, "qdrant_port")
+    assert not hasattr(config, "qdrant_api_key")
+    assert not hasattr(config, "qdrant_collection")
+    assert not hasattr(config, "qdrant_timeout")
+    assert not hasattr(config, "qdrant_prefer_grpc")
+    assert not hasattr(config, "qdrant_recreate_collection")
     assert config.max_retrieved_memories == 8
     assert config.max_memory_prompt_tokens == 2000
     assert config.default_preference_weight == 9
