@@ -118,7 +118,7 @@ pip install -e ".[qdrant]"
 pip install -e ".[bge,qdrant]"
 ```
 
-A local `.env` file can hold embedding and vector-index settings. Dense-only BGE with SQLite looks like:
+A local `.env` file can hold embedding and vector-index settings. Provider-specific vector store settings are parsed into `MemoryConfig.vector_store_options`; they are not top-level `MemoryConfig` fields. Dense-only BGE with SQLite looks like:
 
 ```env
 MEMORA_BACKEND=sqlite
@@ -141,8 +141,8 @@ Dense-only Qdrant uses Qdrant as the derived vector index while MemoryStore rema
 MEMORA_BACKEND=sqlite
 MEMORA_RAG=true
 MEMORA_VECTOR_STORE=qdrant
-MEMORA_QDRANT_URL=http://localhost:6333
-MEMORA_QDRANT_COLLECTION=memora_memories
+MEMORA_VECTOR_STORE_URL=http://localhost:6333
+MEMORA_VECTOR_STORE_COLLECTION=memora_memories
 MEMORA_EMBEDDING_PROVIDER=bge
 MEMORA_EMBEDDING_MODEL_PATH=C:\Download\bge-m3
 MEMORA_EMBEDDING_DIMENSION=1024
@@ -157,8 +157,8 @@ Hybrid Qdrant retrieval requests BGE-M3 sparse lexical weights and uses Qdrant-s
 MEMORA_BACKEND=sqlite
 MEMORA_RAG=true
 MEMORA_VECTOR_STORE=qdrant
-MEMORA_QDRANT_URL=http://localhost:6333
-MEMORA_QDRANT_COLLECTION=memora_memories
+MEMORA_VECTOR_STORE_URL=http://localhost:6333
+MEMORA_VECTOR_STORE_COLLECTION=memora_memories
 MEMORA_EMBEDDING_PROVIDER=bge
 MEMORA_EMBEDDING_MODEL_PATH=C:\Download\bge-m3
 MEMORA_EMBEDDING_DIMENSION=1024

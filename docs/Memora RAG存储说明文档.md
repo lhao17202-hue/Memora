@@ -450,3 +450,6 @@ Memora 必须支持降级：
 - Mem0 open source configuration: https://docs.mem0.ai/open-source/configuration
 - Mem0 migration notes: https://docs.mem0.ai/migration/platform-v2-to-v3
 - OpenAI embeddings guide: https://platform.openai.com/docs/guides/embeddings
+
+
+具体向量库的连接参数会进入 `vector_store_options`，不会作为 `MemoryConfig` 顶层字段暴露给核心逻辑。
