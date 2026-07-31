@@ -10,7 +10,7 @@ from memora.manager import MemoryManager
 from memora.rag import build_embedding_provider, build_reranker, build_vector_metadata, build_vector_store
 from memora.reranker import DeterministicReranker, NoOpReranker
 from memora.schema import MemoryItem, MemoryQuery, MemorySearchResult
-from memora.vector_store import VectorSearchHit
+from memora.vector_store import QdrantVectorStoreConfig, VectorSearchHit
 
 
 class _DenseResult:
@@ -63,6 +63,38 @@ def test_rag_factories_support_only_v1_values(tmp_path, fake_flag_embedding):
         build_reranker(MemoryConfig(rag_enabled=True, reranker="llm"))
     with pytest.raises(MemoryValidationError, match="embedding_provider"):
         build_embedding_provider(MemoryConfig(rag_enabled=True, embedding_provider="unknown"))
+
+
+def test_build_vector_store_passes_options_to_qdrant(fake_flag_embedding, monkeypatch):
+    captured = {}
+
+    class FakeQdrantStore:
+        name = "qdrant"
+
+        def __init__(self, config):
+            captured["config"] = config
+
+    monkeypatch.setattr("memora.rag.QdrantVectorStore", FakeQdrantStore)
+
+    store = build_vector_store(
+        MemoryConfig(
+            rag_enabled=True,
+            vector_store="qdrant",
+            embedding_dimension=1024,
+            retrieval_mode="hybrid",
+            embedding_sparse=True,
+            hybrid_prefetch_limit=25,
+            vector_store_options={"url": "http://localhost:6333", "collection": "custom"},
+        )
+    )
+
+    assert store.name == "qdrant"
+    assert isinstance(captured["config"], QdrantVectorStoreConfig)
+    assert captured["config"].url == "http://localhost:6333"
+    assert captured["config"].collection == "custom"
+    assert captured["config"].dimension == 1024
+    assert captured["config"].retrieval_mode == "hybrid"
+    assert captured["config"].hybrid_prefetch_limit == 25
 
 
 def test_rerankers_are_deterministic():
