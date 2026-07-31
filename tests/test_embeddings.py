@@ -64,8 +64,8 @@ def test_memory_config_rag_defaults_are_disabled():
     assert config.embedding_fp16 is False
     assert config.embedding_sparse is False
     assert config.vector_store == "sqlite"
+    assert config.vector_store_options == {}
     assert config.retrieval_mode == "dense"
-    assert config.qdrant_collection == "memora_memories"
     assert config.reranker == "deterministic"
 
 
