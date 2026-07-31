@@ -38,6 +38,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--embedding-fp16", action="store_true", default=None, help="Use fp16 for local embedding providers when supported.")
     parser.add_argument("--embedding-sparse", action="store_true", default=None, help="Request sparse embeddings from providers that support them.")
     parser.add_argument("--retrieval-mode", choices=("dense", "hybrid"), default=None, help="Vector retrieval mode for RAG.")
+    parser.add_argument("--keyword-recall", choices=("auto", "fts", "scan", "off"), default=None, help="Keyword recall strategy for RAG: auto, fts, scan, or off.")
     parser.add_argument("--hybrid-prefetch-limit", type=int, default=None, help="Per-channel prefetch limit for hybrid vector retrieval.")
     parser.add_argument("--qdrant-url", default=None, help="Qdrant URL, for example http://localhost:6333.")
     parser.add_argument("--qdrant-host", default=None, help="Qdrant host when --qdrant-url is not set.")
@@ -180,6 +181,7 @@ def _config_kwargs_from_args(args) -> dict:
         "embedding_model_path": args.embedding_model_path,
         "embedding_batch_size": args.embedding_batch_size,
         "retrieval_mode": args.retrieval_mode,
+        "keyword_recall": args.keyword_recall,
         "hybrid_prefetch_limit": args.hybrid_prefetch_limit,
         "vector_store": args.vector_store,
         "reranker": args.reranker,
@@ -225,6 +227,7 @@ def _config_kwargs_from_args(args) -> dict:
     kwargs.setdefault("embedding_provider", "hash")
     kwargs.setdefault("vector_store", "sqlite")
     kwargs.setdefault("retrieval_mode", "dense")
+    kwargs.setdefault("keyword_recall", "auto")
     kwargs.setdefault("reranker", "deterministic")
     return kwargs
 

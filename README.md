@@ -132,6 +132,7 @@ MEMORA_EMBEDDING_FP16=true
 MEMORA_EMBEDDING_SPARSE=false
 MEMORA_VECTOR_STORE=sqlite
 MEMORA_RETRIEVAL_MODE=dense
+MEMORA_KEYWORD_RECALL=auto
 HF_OFFLINE=1
 ```
 
@@ -148,6 +149,7 @@ MEMORA_EMBEDDING_MODEL_PATH=C:\Download\bge-m3
 MEMORA_EMBEDDING_DIMENSION=1024
 MEMORA_EMBEDDING_SPARSE=false
 MEMORA_RETRIEVAL_MODE=dense
+MEMORA_KEYWORD_RECALL=auto
 HF_OFFLINE=1
 ```
 
@@ -164,6 +166,7 @@ MEMORA_EMBEDDING_MODEL_PATH=C:\Download\bge-m3
 MEMORA_EMBEDDING_DIMENSION=1024
 MEMORA_EMBEDDING_SPARSE=true
 MEMORA_RETRIEVAL_MODE=hybrid
+MEMORA_KEYWORD_RECALL=auto
 MEMORA_HYBRID_PREFETCH_LIMIT=100
 HF_OFFLINE=1
 ```
@@ -176,7 +179,7 @@ python -m memora --env-file .env rebuild-index
 python -m memora --env-file .env search "结构化单据识别规则"
 ```
 
-SQLite ignores sparse vectors and uses dense cosine search. Qdrant hybrid uses sparse vectors only when both `MEMORA_EMBEDDING_SPARSE=true` and `MEMORA_RETRIEVAL_MODE=hybrid` are set. After changing `embedding_provider`, `embedding_model`, `embedding_model_path`, `embedding_dimension`, `vector_store`, or sparse/hybrid mode, run `rebuild-index` before relying on RAG search quality.
+SQLite ignores sparse vectors and uses dense cosine search. Qdrant hybrid uses sparse vectors only when both `MEMORA_EMBEDDING_SPARSE=true` and `MEMORA_RETRIEVAL_MODE=hybrid` are set. `MEMORA_KEYWORD_RECALL` controls keyword candidates in RAG: `auto` uses SQLite FTS candidates when available and falls back to deterministic in-memory keyword scan; `fts` uses FTS only; `scan` uses deterministic scan only; `off` disables keyword candidates for pure vector retrieval. After changing `embedding_provider`, `embedding_model`, `embedding_model_path`, `embedding_dimension`, `vector_store`, or sparse/hybrid mode, run `rebuild-index` before relying on RAG search quality.
 
 `verify` prints vector diagnostics when RAG is enabled:
 

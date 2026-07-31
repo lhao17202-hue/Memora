@@ -7,8 +7,9 @@ import pytest
 from memora.config import MemoryConfig
 from memora.errors import MemoryValidationError
 from memora.manager import MemoryManager
-from memora.rag import build_embedding_provider, build_reranker, build_vector_metadata, build_vector_store
+from memora.rag import RagRetriever, build_embedding_provider, build_reranker, build_vector_metadata, build_vector_store
 from memora.reranker import DeterministicReranker, NoOpReranker
+from memora.retriever import MemoryRetriever
 from memora.schema import MemoryItem, MemoryQuery, MemorySearchResult
 from memora.vector_store import QdrantVectorStoreConfig, VectorSearchHit
 
@@ -95,6 +96,30 @@ def test_build_vector_store_passes_options_to_qdrant(fake_flag_embedding, monkey
     assert captured["config"].dimension == 1024
     assert captured["config"].retrieval_mode == "hybrid"
     assert captured["config"].hybrid_prefetch_limit == 25
+
+
+def test_build_vector_store_uses_bge_default_dimension_for_qdrant(fake_flag_embedding, monkeypatch):
+    captured = {}
+
+    class FakeQdrantStore:
+        name = "qdrant"
+
+        def __init__(self, config):
+            captured["config"] = config
+
+    monkeypatch.setattr("memora.rag.QdrantVectorStore", FakeQdrantStore)
+    config = MemoryConfig(
+        rag_enabled=True,
+        embedding_provider="bge",
+        embedding_model_path="C:/Download/bge-m3",
+        vector_store="qdrant",
+    )
+
+    embedder = build_embedding_provider(config)
+    build_vector_store(config)
+
+    assert embedder.dimension == 1024
+    assert captured["config"].dimension == embedder.dimension
 
 
 def test_rerankers_are_deterministic():
@@ -380,3 +405,80 @@ def test_rag_merge_deduplicates_vector_and_keyword_candidates_by_memory_id(tmp_p
     assert ids == [shared.id]
     assert results[0].semantic_score == 0.40
     assert results[0].keyword_score > 0
+
+
+class _FakeCandidateStore:
+    def __init__(self, candidates=None, error: Exception | None = None):
+        self.candidates = list(candidates or [])
+        self.error = error
+        self.calls = 0
+
+    def search_candidates(self, query):
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+        return self.candidates
+
+
+def _keyword_retriever(config: MemoryConfig, candidate_store=None) -> RagRetriever:
+    return RagRetriever(
+        memory_store=None,
+        candidate_store=candidate_store,
+        embedder=None,
+        vector_store=None,
+        retriever=MemoryRetriever(),
+        reranker=NoOpReranker(),
+        config=config,
+    )
+
+
+def test_rag_keyword_recall_auto_uses_fts_candidates_first():
+    matched = MemoryItem(id="mem_match", name="pytest", description="pytest fixture", type="tool", content="pytest fixture details")
+    unrelated = MemoryItem(id="mem_other", name="other", description="other", type="tool", content="other")
+    retriever = _keyword_retriever(MemoryConfig(keyword_recall="auto"), _FakeCandidateStore([unrelated, matched]))
+
+    recalled = retriever._keyword_recall(MemoryQuery(query="pytest fixture"), {matched.id: matched, unrelated.id: unrelated})
+
+    assert [item.id for item in recalled] == [unrelated.id, matched.id]
+
+
+def test_rag_keyword_recall_auto_falls_back_to_scored_scan_without_noise():
+    matched = MemoryItem(id="mem_match", name="pytest", description="pytest fixture", type="tool", content="pytest fixture details")
+    unrelated = MemoryItem(id="mem_other", name="other", description="other", type="tool", content="other")
+    retriever = _keyword_retriever(MemoryConfig(keyword_recall="auto", keyword_candidate_limit=10), _FakeCandidateStore([]))
+
+    recalled = retriever._keyword_recall(MemoryQuery(query="pytest fixture"), {unrelated.id: unrelated, matched.id: matched})
+
+    assert [item.id for item in recalled] == [matched.id]
+
+
+def test_rag_keyword_recall_fts_does_not_scan_on_empty_or_error():
+    matched = MemoryItem(id="mem_match", name="pytest", description="pytest fixture", type="tool", content="pytest fixture details")
+    allowed = {matched.id: matched}
+
+    empty = _keyword_retriever(MemoryConfig(keyword_recall="fts"), _FakeCandidateStore([]))
+    broken = _keyword_retriever(MemoryConfig(keyword_recall="fts"), _FakeCandidateStore(error=RuntimeError("fts broken")))
+
+    assert empty._keyword_recall(MemoryQuery(query="pytest fixture"), allowed) == []
+    assert broken._keyword_recall(MemoryQuery(query="pytest fixture"), allowed) == []
+
+
+def test_rag_keyword_recall_scan_ignores_fts_candidates():
+    matched = MemoryItem(id="mem_match", name="pytest", description="pytest fixture", type="tool", content="pytest fixture details")
+    unrelated = MemoryItem(id="mem_other", name="other", description="other", type="tool", content="other")
+    candidate_store = _FakeCandidateStore([unrelated])
+    retriever = _keyword_retriever(MemoryConfig(keyword_recall="scan"), candidate_store)
+
+    recalled = retriever._keyword_recall(MemoryQuery(query="pytest fixture"), {matched.id: matched, unrelated.id: unrelated})
+
+    assert candidate_store.calls == 0
+    assert [item.id for item in recalled] == [matched.id]
+
+
+def test_rag_keyword_recall_off_returns_no_keyword_candidates():
+    matched = MemoryItem(id="mem_match", name="pytest", description="pytest fixture", type="tool", content="pytest fixture details")
+    retriever = _keyword_retriever(MemoryConfig(keyword_recall="off"), _FakeCandidateStore([matched]))
+
+    recalled = retriever._keyword_recall(MemoryQuery(query="pytest fixture"), {matched.id: matched})
+
+    assert recalled == []

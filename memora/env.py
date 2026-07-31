@@ -46,6 +46,7 @@ _STRING_FIELDS = {
     "MEMORA_VECTOR_STORE": "vector_store",
     "MEMORA_VECTOR_PATH": "vector_path",
     "MEMORA_RETRIEVAL_MODE": "retrieval_mode",
+    "MEMORA_KEYWORD_RECALL": "keyword_recall",
     "MEMORA_RERANKER": "reranker",
 }
 

@@ -33,6 +33,7 @@ def test_python_module_help_exits_zero():
     assert "--embedding-batch-size" in result.stdout
     assert "--embedding-sparse" in result.stdout
     assert "--retrieval-mode" in result.stdout
+    assert "--keyword-recall" in result.stdout
     assert "--qdrant-url" in result.stdout
     assert "--qdrant-collection" in result.stdout
     assert "openai" in result.stdout.lower()
@@ -396,6 +397,15 @@ def test_cli_qdrant_flags_populate_vector_store_options(tmp_path: Path):
         "timeout": 7.5,
         "prefer_grpc": True,
     }
+
+
+def test_cli_keyword_recall_flag_populates_config():
+    parser = build_parser()
+    args = parser.parse_args(["--env-file", "", "--keyword-recall", "scan", "init"])
+
+    kwargs = _config_kwargs_from_args(args)
+
+    assert kwargs["keyword_recall"] == "scan"
 
 
 def test_invalid_env_config_reports_clear_cli_error_without_traceback(tmp_path: Path):

@@ -98,7 +98,14 @@ class FakeQdrantClient:
 
     def get_collection(self, collection_name):
         if self.collection_info is None:
-            return types.SimpleNamespace(config=types.SimpleNamespace(params=types.SimpleNamespace(vectors={}, sparse_vectors={})))
+            return types.SimpleNamespace(
+                config=types.SimpleNamespace(
+                    params=types.SimpleNamespace(
+                        vectors={"dense": FakeModels.VectorParams(size=384, distance=FakeModels.Distance.COSINE)},
+                        sparse_vectors={},
+                    )
+                )
+            )
         return self.collection_info
 
     def upsert(self, **kwargs):
@@ -254,3 +261,54 @@ def test_qdrant_config_builds_from_vector_store_options():
 def test_qdrant_config_rejects_unknown_options():
     with pytest.raises(MemoryValidationError, match="unknown vector_store_options"):
         QdrantVectorStoreConfig.from_options({"bad": "value"}, dimension=384, retrieval_mode="dense", hybrid_prefetch_limit=100)
+
+
+def test_qdrant_existing_collection_requires_named_dense_vector(fake_qdrant):
+    store = QdrantVectorStore(QdrantVectorStoreConfig(dimension=4))
+    client = fake_qdrant.instances[0]
+    client.collections.add("memora_memories")
+    client.collection_info = types.SimpleNamespace(
+        config=types.SimpleNamespace(
+            params=types.SimpleNamespace(
+                vectors=FakeModels.VectorParams(size=4, distance=FakeModels.Distance.COSINE),
+                sparse_vectors={},
+            )
+        )
+    )
+
+    with pytest.raises(MemoryValidationError, match="named dense vector 'dense'"):
+        store.init_storage()
+
+
+def test_qdrant_existing_collection_requires_dense_dimension_match(fake_qdrant):
+    store = QdrantVectorStore(QdrantVectorStoreConfig(dimension=4))
+    client = fake_qdrant.instances[0]
+    client.collections.add("memora_memories")
+    client.collection_info = types.SimpleNamespace(
+        config=types.SimpleNamespace(
+            params=types.SimpleNamespace(
+                vectors={"dense": FakeModels.VectorParams(size=3, distance=FakeModels.Distance.COSINE)},
+                sparse_vectors={},
+            )
+        )
+    )
+
+    with pytest.raises(MemoryValidationError, match="dense vector dimension mismatch: expected 4, got 3"):
+        store.init_storage()
+
+
+def test_qdrant_existing_hybrid_collection_requires_sparse_vector(fake_qdrant):
+    store = QdrantVectorStore(QdrantVectorStoreConfig(dimension=4, retrieval_mode="hybrid"))
+    client = fake_qdrant.instances[0]
+    client.collections.add("memora_memories")
+    client.collection_info = types.SimpleNamespace(
+        config=types.SimpleNamespace(
+            params=types.SimpleNamespace(
+                vectors={"dense": FakeModels.VectorParams(size=4, distance=FakeModels.Distance.COSINE)},
+                sparse_vectors=None,
+            )
+        )
+    )
+
+    with pytest.raises(MemoryValidationError, match="sparse vector 'sparse'"):
+        store.init_storage()

@@ -40,6 +40,8 @@ class ReservedReranker:
 def _validate_retrieval_config(config: MemoryConfig, embedder: EmbeddingProvider | None = None) -> None:
     if config.retrieval_mode not in {"dense", "hybrid"}:
         raise MemoryValidationError(f"unsupported retrieval_mode: {config.retrieval_mode}")
+    if config.keyword_recall not in {"auto", "fts", "scan", "off"}:
+        raise MemoryValidationError(f"unsupported keyword_recall: {config.keyword_recall}")
     if config.retrieval_mode == "hybrid" and not config.embedding_sparse:
         raise MemoryValidationError("retrieval_mode 'hybrid' requires embedding_sparse=True")
     if config.retrieval_mode == "hybrid" and config.vector_store != "qdrant":
@@ -48,17 +50,22 @@ def _validate_retrieval_config(config: MemoryConfig, embedder: EmbeddingProvider
         raise MemoryValidationError(f"embedding_provider '{embedder.name}' does not support sparse embeddings required for hybrid retrieval")
 
 
+def _embedding_dimension(config: MemoryConfig) -> int:
+    if config.embedding_provider == "bge" and config.embedding_dimension == 384:
+        return 1024
+    return config.embedding_dimension
+
+
 def build_embedding_provider(config: MemoryConfig) -> EmbeddingProvider:
     _validate_retrieval_config(config)
     if config.embedding_provider == "hash":
         embedder = HashEmbeddingProvider(dimension=config.embedding_dimension, model=config.embedding_model)
     elif config.embedding_provider == "bge":
         model = config.embedding_model if config.embedding_model != "memora-hash-v1" else "bge-m3"
-        dimension = 1024 if config.embedding_dimension == 384 else config.embedding_dimension
         embedder = BgeM3EmbeddingProvider(
             model_path=config.embedding_model_path,
             model=model,
-            dimension=dimension,
+            dimension=_embedding_dimension(config),
             batch_size=config.embedding_batch_size,
             fp16=config.embedding_fp16,
             return_sparse=config.embedding_sparse,
@@ -78,7 +85,7 @@ def build_vector_store(config: MemoryConfig) -> VectorStore:
     if config.vector_store == "qdrant":
         qdrant_config = QdrantVectorStoreConfig.from_options(
             config.vector_store_options,
-            dimension=config.embedding_dimension,
+            dimension=_embedding_dimension(config),
             retrieval_mode=config.retrieval_mode,
             hybrid_prefetch_limit=config.hybrid_prefetch_limit,
         )
@@ -253,15 +260,35 @@ class RagRetriever:
         return [hit for hit in hits if hit.memory_id in allowed]
 
     def _keyword_recall(self, query: MemoryQuery, allowed: dict[str, MemoryItem]) -> list[MemoryItem]:
-        if self.candidate_store is not None:
-            try:
-                candidates = self.candidate_store.search_candidates(query)
-            except Exception:  # noqa: BLE001 - retrieval should degrade
-                candidates = []
-            candidates = [item for item in candidates if item.id in allowed]
-            if candidates:
-                return candidates[: self.config.keyword_candidate_limit]
-        return list(allowed.values())[: self.config.keyword_candidate_limit]
+        mode = self.config.keyword_recall
+        if mode == "off":
+            return []
+        if mode in {"auto", "fts"}:
+            candidates = self._fts_keyword_recall(query, allowed)
+            if candidates or mode == "fts":
+                return candidates
+        if mode in {"auto", "scan"}:
+            return self._scan_keyword_recall(query, allowed)
+        return []
+
+    def _fts_keyword_recall(self, query: MemoryQuery, allowed: dict[str, MemoryItem]) -> list[MemoryItem]:
+        if self.candidate_store is None:
+            return []
+        try:
+            candidates = self.candidate_store.search_candidates(query)
+        except Exception:  # noqa: BLE001 - retrieval should degrade
+            return []
+        candidates = [item for item in candidates if item.id in allowed]
+        return candidates[: self.config.keyword_candidate_limit]
+
+    def _scan_keyword_recall(self, query: MemoryQuery, allowed: dict[str, MemoryItem]) -> list[MemoryItem]:
+        results = []
+        for item in allowed.values():
+            result = self.retriever.score(item, query)
+            if result is not None:
+                results.append(result)
+        results.sort(key=lambda result: result.final_score, reverse=True)
+        return [result.memory for result in results[: self.config.keyword_candidate_limit]]
 
     def _merge(
         self,

@@ -161,7 +161,7 @@ embedding provider / model / dimension / text_hash
 - 数字、版本号、错误码
 - 用户明确说过的原词
 
-因此需要保留当前 SQLite FTS 和 MemoryRetriever 中的 keyword scoring。
+因此需要保留当前 SQLite FTS 和 MemoryRetriever 中的 keyword scoring。RAG 的关键词候选由 `MEMORA_KEYWORD_RECALL` 控制：`auto` 优先使用 SQLite FTS，FTS 没有候选或不可用时回退到确定性 keyword scan；`fts` 只使用 FTS；`scan` 只使用确定性 scan；`off` 关闭关键词候选，用于纯向量召回。
 
 ### 4.4 合并去重
 
@@ -238,6 +238,7 @@ MEMORA_EMBEDDING_FP16=true
 MEMORA_EMBEDDING_SPARSE=false
 MEMORA_VECTOR_STORE=sqlite
 MEMORA_RETRIEVAL_MODE=dense
+MEMORA_KEYWORD_RECALL=auto
 HF_OFFLINE=1
 ```
 
@@ -348,7 +349,7 @@ Memora 必须支持降级：
 | EmbeddingProvider 不可用 | 跳过向量召回，保留 keyword/FTS |
 | VectorStore 不可用 | 跳过向量召回，保留 keyword/FTS |
 | Reranker 不可用 | 使用确定性 MemoryRetriever 或 NoOpReranker |
-| FTS 不可用 | 使用全量 keyword scan |
+| FTS 不可用 | `MEMORA_KEYWORD_RECALL=auto` 时使用确定性 keyword scan；`fts` 时不回退 |
 | RAG 关闭 | 回到当前 SQLite/文件检索行为 |
 
 这保证 Memora 仍然是本地可用、可测试、可移植的记忆系统。

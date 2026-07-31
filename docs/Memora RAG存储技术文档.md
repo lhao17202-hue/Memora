@@ -100,6 +100,7 @@ class MemoryConfig:
     vector_candidate_limit: int = 50
 
     keyword_candidate_limit: int = 50
+    keyword_recall: str = "auto"
 
     reranker: str = "deterministic"
     rerank_candidate_limit: int = 100
@@ -111,6 +112,7 @@ class MemoryConfig:
 |---|---|---|
 | embedding_provider | `hash`, `bge` | `hash` 为默认零依赖 provider；`bge` 使用本地 BGE-M3 dense embedding |
 | vector_store | `sqlite`, `qdrant` | `sqlite` 为默认 dense-only 本地索引；`qdrant` 为 optional extra，支持 dense 或 hybrid |
+| keyword_recall | `auto`, `fts`, `scan`, `off` | `auto` 优先 FTS 并在无候选/不可用时回退 deterministic scan；`fts` 不回退；`scan` 不调用 FTS；`off` 关闭关键词候选 |
 | reranker | `none`, `deterministic` | 不接模型 reranker |
 
 配置原则：
@@ -549,13 +551,16 @@ vector_hits = [hit for hit in vector_hits if hit.memory_id in allowed]
 
 ### 9.3 Keyword recall
 
-沿用 SQLite FTS：
+由 `keyword_recall` 控制关键词候选来源：
 
-```python
-keyword_items = candidate_store.search_candidates(query)
-```
+| 模式 | 行为 |
+|---|---|
+| `auto` | 优先调用 `candidate_store.search_candidates(query)` 使用 SQLite FTS；FTS 无候选或抛错时，回退到确定性 scan |
+| `fts` | 只调用 FTS；FTS 无候选或抛错时返回空关键词候选 |
+| `scan` | 不调用 FTS，直接对 `allowed` 记忆用 `MemoryRetriever.score()` 做确定性 scan |
+| `off` | 不产生关键词候选，用于纯向量召回 |
 
-如果 FTS 不可用，则使用现有全量 keyword scan。
+scan fallback 只返回 `MemoryRetriever.score()` 能命中的记忆，不再把 `allowed.values()` 截断后无差别塞进候选，避免无关键词证据的噪声进入融合排序。
 
 ### 9.4 Merge
 
@@ -591,7 +596,7 @@ final_score = (
 
 - RAG 关闭时使用原来的 keyword scoring。
 - RAG 开启但向量不可用时 `semantic_score=0`。
-- FTS 不可用时 `keyword_score=0` 或全量 keyword fallback。
+- FTS 不可用时，`keyword_recall=auto` 会回退 deterministic scan；`keyword_recall=fts` 会让 `keyword_score=0`。
 
 重排来源说明：
 

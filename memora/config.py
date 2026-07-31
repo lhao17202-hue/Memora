@@ -30,6 +30,7 @@ class MemoryConfig:
     hybrid_prefetch_limit: int = 100
     vector_candidate_limit: int = 50
     keyword_candidate_limit: int = 50
+    keyword_recall: str = "auto"
     min_semantic_score: float = 0.25
     semantic_write_relations_enabled: bool = False
     semantic_relation_threshold: float = 0.78

@@ -78,6 +78,7 @@ def test_memory_config_defaults():
     assert config.sqlite_path is None
     assert config.fts_enabled is True
     assert config.fts_candidate_limit == 100
+    assert config.keyword_recall == "auto"
     assert config.vector_store == "sqlite"
     assert config.vector_store_options == {}
     assert not hasattr(config, "qdrant_url")

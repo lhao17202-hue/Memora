@@ -401,14 +401,19 @@ class QdrantVectorStore:
             raise MemoryValidationError(f"unable to validate qdrant collection '{self.collection}': {exc}") from exc
         config = getattr(getattr(info, "config", None), "params", None)
         vectors = getattr(config, "vectors", None)
-        if isinstance(vectors, dict):
-            dense = vectors.get(QDRANT_DENSE_VECTOR_NAME)
-            size = getattr(dense, "size", None) if dense is not None else None
-            if size is not None and int(size) != self.config.dimension:
-                raise MemoryValidationError(f"qdrant collection '{self.collection}' dense vector dimension mismatch: expected {self.config.dimension}, got {size}")
+        if not isinstance(vectors, dict):
+            raise MemoryValidationError(f"qdrant collection '{self.collection}' must define named dense vector '{QDRANT_DENSE_VECTOR_NAME}'")
+        dense = vectors.get(QDRANT_DENSE_VECTOR_NAME)
+        if dense is None:
+            raise MemoryValidationError(f"qdrant collection '{self.collection}' must define named dense vector '{QDRANT_DENSE_VECTOR_NAME}'")
+        size = getattr(dense, "size", None)
+        if size is None:
+            raise MemoryValidationError(f"qdrant collection '{self.collection}' dense vector '{QDRANT_DENSE_VECTOR_NAME}' is missing dimension")
+        if int(size) != self.config.dimension:
+            raise MemoryValidationError(f"qdrant collection '{self.collection}' dense vector dimension mismatch: expected {self.config.dimension}, got {size}")
         if self.config.retrieval_mode == "hybrid":
             sparse_vectors = getattr(config, "sparse_vectors", None)
-            if isinstance(sparse_vectors, dict) and QDRANT_SPARSE_VECTOR_NAME not in sparse_vectors:
+            if not isinstance(sparse_vectors, dict) or QDRANT_SPARSE_VECTOR_NAME not in sparse_vectors:
                 raise MemoryValidationError(f"qdrant collection '{self.collection}' does not define sparse vector '{QDRANT_SPARSE_VECTOR_NAME}'")
 
     def _sparse_vector(self, sparse: SparseVector) -> Any:
