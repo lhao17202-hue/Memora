@@ -3,10 +3,9 @@ import types
 
 import pytest
 
-from memora.config import MemoryConfig
 from memora.embeddings import EmbeddingVector, SparseVector
 from memora.errors import MemoryValidationError
-from memora.vector_store import QdrantVectorStore, qdrant_point_id
+from memora.vector_store import QdrantVectorStore, QdrantVectorStoreConfig, qdrant_point_id
 
 
 class FakeModels:
@@ -134,11 +133,11 @@ def test_qdrant_vector_store_reports_missing_optional_dependency(monkeypatch):
     monkeypatch.setitem(sys.modules, "qdrant_client", None)
 
     with pytest.raises(MemoryValidationError, match="qdrant-client"):
-        QdrantVectorStore(MemoryConfig(rag_enabled=True, vector_store="qdrant"))
+        QdrantVectorStore(QdrantVectorStoreConfig())
 
 
 def test_qdrant_init_creates_dense_collection(fake_qdrant):
-    store = QdrantVectorStore(MemoryConfig(rag_enabled=True, vector_store="qdrant", embedding_dimension=4, qdrant_url="http://localhost:6333"))
+    store = QdrantVectorStore(QdrantVectorStoreConfig(dimension=4, url="http://localhost:6333"))
 
     store.init_storage()
 
@@ -150,7 +149,7 @@ def test_qdrant_init_creates_dense_collection(fake_qdrant):
 
 
 def test_qdrant_init_creates_hybrid_collection(fake_qdrant):
-    store = QdrantVectorStore(MemoryConfig(rag_enabled=True, vector_store="qdrant", embedding_dimension=4, retrieval_mode="hybrid"))
+    store = QdrantVectorStore(QdrantVectorStoreConfig(dimension=4, retrieval_mode="hybrid"))
 
     store.init_storage()
 
@@ -160,7 +159,7 @@ def test_qdrant_init_creates_hybrid_collection(fake_qdrant):
 
 
 def test_qdrant_upsert_dense_and_sparse_vectors(fake_qdrant):
-    store = QdrantVectorStore(MemoryConfig(rag_enabled=True, vector_store="qdrant", retrieval_mode="hybrid", embedding_dimension=2))
+    store = QdrantVectorStore(QdrantVectorStoreConfig(retrieval_mode="hybrid", dimension=2))
 
     store.upsert(
         "mem_1",
@@ -177,14 +176,14 @@ def test_qdrant_upsert_dense_and_sparse_vectors(fake_qdrant):
 
 
 def test_qdrant_hybrid_upsert_requires_sparse_vector(fake_qdrant):
-    store = QdrantVectorStore(MemoryConfig(rag_enabled=True, vector_store="qdrant", retrieval_mode="hybrid", embedding_dimension=2))
+    store = QdrantVectorStore(QdrantVectorStoreConfig(retrieval_mode="hybrid", dimension=2))
 
     with pytest.raises(MemoryValidationError, match="sparse"):
         store.upsert("mem_1", EmbeddingVector(dense=[1.0, 0.0]), {"dimension": 2})
 
 
 def test_qdrant_dense_search_uses_named_dense_vector_and_filters(fake_qdrant):
-    store = QdrantVectorStore(MemoryConfig(rag_enabled=True, vector_store="qdrant", embedding_dimension=2))
+    store = QdrantVectorStore(QdrantVectorStoreConfig(dimension=2))
 
     hits = store.search(EmbeddingVector(dense=[1.0, 0.0]), top_k=5, filters={"user_id": "alice", "types": ["preference"], "tags": ["tag"]})
 
@@ -198,7 +197,7 @@ def test_qdrant_dense_search_uses_named_dense_vector_and_filters(fake_qdrant):
 
 
 def test_qdrant_hybrid_search_uses_dense_sparse_prefetch_and_fusion(fake_qdrant):
-    store = QdrantVectorStore(MemoryConfig(rag_enabled=True, vector_store="qdrant", retrieval_mode="hybrid", embedding_dimension=2, hybrid_prefetch_limit=25))
+    store = QdrantVectorStore(QdrantVectorStoreConfig(retrieval_mode="hybrid", dimension=2, hybrid_prefetch_limit=25))
 
     hits = store.search(EmbeddingVector(dense=[1.0, 0.0], sparse=SparseVector(indices=[3], values=[0.5])), top_k=3, mode="hybrid")
 
@@ -212,7 +211,7 @@ def test_qdrant_hybrid_search_uses_dense_sparse_prefetch_and_fusion(fake_qdrant)
 
 
 def test_qdrant_delete_retrieve_and_verify_use_payload_memory_ids(fake_qdrant):
-    store = QdrantVectorStore(MemoryConfig(rag_enabled=True, vector_store="qdrant"))
+    store = QdrantVectorStore(QdrantVectorStoreConfig())
     client = fake_qdrant.instances[0]
     client.scroll_points = [FakePoint(payload={"memory_id": "mem_1"}), FakePoint(payload={"memory_id": "orphan"})]
 
@@ -224,3 +223,34 @@ def test_qdrant_delete_retrieve_and_verify_use_payload_memory_ids(fake_qdrant):
     assert metadata["memory_id"] == "mem_1"
     assert report["vector_missing"] == ["mem_2"]
     assert report["vector_orphans"] == ["orphan"]
+
+
+def test_qdrant_config_builds_from_vector_store_options():
+    config = QdrantVectorStoreConfig.from_options(
+        {
+            "url": "http://localhost:6333",
+            "api_key": "secret",
+            "collection": "custom_memories",
+            "timeout": 7.5,
+            "prefer_grpc": True,
+            "recreate_collection": True,
+        },
+        dimension=1024,
+        retrieval_mode="hybrid",
+        hybrid_prefetch_limit=25,
+    )
+
+    assert config.url == "http://localhost:6333"
+    assert config.api_key == "secret"
+    assert config.collection == "custom_memories"
+    assert config.timeout == 7.5
+    assert config.prefer_grpc is True
+    assert config.recreate_collection is True
+    assert config.dimension == 1024
+    assert config.retrieval_mode == "hybrid"
+    assert config.hybrid_prefetch_limit == 25
+
+
+def test_qdrant_config_rejects_unknown_options():
+    with pytest.raises(MemoryValidationError, match="unknown vector_store_options"):
+        QdrantVectorStoreConfig.from_options({"bad": "value"}, dimension=384, retrieval_mode="dense", hybrid_prefetch_limit=100)
