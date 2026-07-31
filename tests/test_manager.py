@@ -1606,3 +1606,54 @@ def test_semantic_supersede_archives_old_memory_and_syncs_rag_index(tmp_path: Pa
     assert [search_result.memory.id for search_result in new_results] == [result.memory.id]
     assert verify["vector_ok"] is True
     assert verify["rag_sync_errors"] == []
+
+
+def test_rag_manager_uses_injected_vector_store(tmp_path: Path):
+    from memora.embeddings import EmbeddingVector
+    from memora.vector_store import VectorSearchHit
+
+    class InMemoryVectorStore:
+        name = "custom"
+
+        def __init__(self):
+            self.vectors = {}
+            self.metadata = {}
+            self.initialized = False
+
+        def init_storage(self) -> None:
+            self.initialized = True
+
+        def upsert(self, memory_id, vector, metadata):
+            dense = vector.dense if isinstance(vector, EmbeddingVector) else vector
+            self.vectors[memory_id] = dense
+            self.metadata[memory_id] = dict(metadata)
+
+        def delete(self, memory_id: str) -> None:
+            self.vectors.pop(memory_id, None)
+            self.metadata.pop(memory_id, None)
+
+        def search(self, vector, top_k: int, filters=None, mode: str = "dense"):
+            return [VectorSearchHit(memory_id=memory_id, score=0.9, metadata=metadata) for memory_id, metadata in self.metadata.items()][:top_k]
+
+        def get_metadata(self, memory_id: str):
+            return self.metadata.get(memory_id)
+
+        def verify(self, expected_memory_ids: set[str]):
+            vector_ids = set(self.metadata)
+            return {
+                "vector_missing": sorted(expected_memory_ids - vector_ids),
+                "vector_orphans": sorted(vector_ids - expected_memory_ids),
+                "vector_errors": [],
+            }
+
+    vector_store = InMemoryVectorStore()
+    manager = MemoryManager(MemoryConfig(root_dir=tmp_path / ".memora", rag_enabled=True), vector_store=vector_store)
+
+    manager.init_storage()
+    item = manager.save_memory("preference", "custom vector store marker", "custom", name="custom-vector")
+    results = manager.retrieve_memory("custom vector store marker")
+
+    assert vector_store.initialized is True
+    assert item.id in vector_store.metadata
+    assert results[0].memory.id == item.id
+    assert manager.verify_memories()["vector_ok"] is True
