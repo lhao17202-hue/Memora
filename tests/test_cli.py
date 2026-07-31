@@ -2,6 +2,8 @@ import json
 import sqlite3
 import subprocess
 import sys
+
+from memora.cli import _config_kwargs_from_args, build_parser
 from pathlib import Path
 
 
@@ -362,6 +364,38 @@ def test_cli_loads_env_file_and_cli_overrides_it(tmp_path: Path):
     assert verified.returncode == 0
     assert "vector_ok=True" in verified.stdout
     assert row == ("env-hash-model", 32)
+
+
+def test_cli_qdrant_flags_populate_vector_store_options(tmp_path: Path):
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "--env-file",
+            "",
+            "--rag",
+            "--vector-store",
+            "qdrant",
+            "--qdrant-url",
+            "http://localhost:6333",
+            "--qdrant-collection",
+            "custom_memories",
+            "--qdrant-timeout",
+            "7.5",
+            "--qdrant-prefer-grpc",
+            "init",
+        ]
+    )
+
+    kwargs = _config_kwargs_from_args(args)
+
+    assert kwargs["rag_enabled"] is True
+    assert kwargs["vector_store"] == "qdrant"
+    assert kwargs["vector_store_options"] == {
+        "url": "http://localhost:6333",
+        "collection": "custom_memories",
+        "timeout": 7.5,
+        "prefer_grpc": True,
+    }
 
 
 def test_invalid_env_config_reports_clear_cli_error_without_traceback(tmp_path: Path):

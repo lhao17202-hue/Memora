@@ -181,12 +181,6 @@ def _config_kwargs_from_args(args) -> dict:
         "embedding_batch_size": args.embedding_batch_size,
         "retrieval_mode": args.retrieval_mode,
         "hybrid_prefetch_limit": args.hybrid_prefetch_limit,
-        "qdrant_url": args.qdrant_url,
-        "qdrant_host": args.qdrant_host,
-        "qdrant_port": args.qdrant_port,
-        "qdrant_api_key": args.qdrant_api_key,
-        "qdrant_collection": args.qdrant_collection,
-        "qdrant_timeout": args.qdrant_timeout,
         "vector_store": args.vector_store,
         "reranker": args.reranker,
         "semantic_relation_threshold": args.semantic_relation_threshold,
@@ -204,10 +198,24 @@ def _config_kwargs_from_args(args) -> dict:
         kwargs["embedding_fp16"] = True
     if args.embedding_sparse:
         kwargs["embedding_sparse"] = True
+    vector_store_options = dict(kwargs.get("vector_store_options") or {})
+    qdrant_cli_options = {
+        "url": args.qdrant_url,
+        "host": args.qdrant_host,
+        "port": args.qdrant_port,
+        "api_key": args.qdrant_api_key,
+        "collection": args.qdrant_collection,
+        "timeout": args.qdrant_timeout,
+    }
+    for key, value in qdrant_cli_options.items():
+        if value is not None:
+            vector_store_options[key] = value
     if args.qdrant_prefer_grpc:
-        kwargs["qdrant_prefer_grpc"] = True
+        vector_store_options["prefer_grpc"] = True
     if args.qdrant_recreate_collection:
-        kwargs["qdrant_recreate_collection"] = True
+        vector_store_options["recreate_collection"] = True
+    if vector_store_options:
+        kwargs["vector_store_options"] = vector_store_options
     if args.semantic_write_relations:
         kwargs["semantic_write_relations_enabled"] = True
     if args.no_high_confidence_conflict_replace:
