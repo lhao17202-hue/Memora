@@ -209,6 +209,12 @@ python -m pytest tests/e2e/test_bge_qdrant_e2e.py -q -s
 
 The E2E test enables `MEMORA_TRACE_TIMING=1` for its Memora subprocesses, so `-s` prints internal timings for manager construction, BGE model loading, embedding, Qdrant operations, verify, and rebuild.
 
+For a faster real BGE-M3 + Qdrant check that keeps the model loaded in one Python process, run only the in-process E2E:
+
+```powershell
+python -m pytest tests/e2e/test_bge_qdrant_e2e.py::test_real_bge_m3_qdrant_in_process_flow -q -s
+```
+
 The selected local memory backend remains the source of truth. RAG is a retrieval index, not a separate authoritative memory store.
 
 ## Data Portability

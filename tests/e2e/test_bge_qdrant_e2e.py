@@ -8,6 +8,9 @@ from pathlib import Path
 
 import pytest
 
+from memora.config import MemoryConfig
+from memora.manager import MemoryManager
+
 
 RUN_TRUE_VALUES = {"1", "true", "yes", "on"}
 DEFAULT_BGE_MODEL_PATH = Path(r"C:\Download\bge-m3")
@@ -58,6 +61,14 @@ def _assert_ok(result: subprocess.CompletedProcess[str]) -> None:
     assert result.returncode == 0, f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
 
 
+def _timed(label: str, fn):
+    _log(f"step: {label}")
+    started = time.perf_counter()
+    result = fn()
+    _log(f"done: {label} elapsed={time.perf_counter() - started:.2f}s")
+    return result
+
+
 def _require_module(name: str) -> None:
     _log(f"preflight: import {name}")
     try:
@@ -78,26 +89,50 @@ def _require_qdrant(qdrant_url: str) -> None:
     _log(f"preflight ok: qdrant reachable {qdrant_url}")
 
 
-def _write_env_file(env_path: Path, *, model_path: Path, qdrant_url: str, collection: str) -> None:
+def _bge_qdrant_config(root: Path, *, model_path: Path, qdrant_url: str, collection: str) -> MemoryConfig:
+    return MemoryConfig(
+        root_dir=root,
+        memory_backend="sqlite",
+        rag_enabled=True,
+        embedding_provider="bge",
+        embedding_model="bge-m3",
+        embedding_model_path=model_path,
+        embedding_dimension=1024,
+        embedding_batch_size=8,
+        embedding_fp16=True,
+        embedding_sparse=True,
+        vector_store="qdrant",
+        vector_store_options={
+            "url": qdrant_url,
+            "collection": collection,
+            "timeout": 30.0,
+        },
+        retrieval_mode="hybrid",
+        keyword_recall="auto",
+        hybrid_prefetch_limit=30,
+    )
+
+
+def _write_env_file(env_path: Path, *, config: MemoryConfig, qdrant_url: str, collection: str) -> None:
     env_path.write_text(
         "\n".join(
             [
-                "MEMORA_BACKEND=sqlite",
-                "MEMORA_RAG=true",
-                "MEMORA_EMBEDDING_PROVIDER=bge",
-                "MEMORA_EMBEDDING_MODEL=bge-m3",
-                f"MEMORA_EMBEDDING_MODEL_PATH={model_path}",
-                "MEMORA_EMBEDDING_DIMENSION=1024",
-                "MEMORA_EMBEDDING_BATCH_SIZE=8",
-                "MEMORA_EMBEDDING_FP16=true",
-                "MEMORA_EMBEDDING_SPARSE=true",
-                "MEMORA_VECTOR_STORE=qdrant",
+                f"MEMORA_BACKEND={config.memory_backend}",
+                f"MEMORA_RAG={str(config.rag_enabled).lower()}",
+                f"MEMORA_EMBEDDING_PROVIDER={config.embedding_provider}",
+                f"MEMORA_EMBEDDING_MODEL={config.embedding_model}",
+                f"MEMORA_EMBEDDING_MODEL_PATH={config.embedding_model_path}",
+                f"MEMORA_EMBEDDING_DIMENSION={config.embedding_dimension}",
+                f"MEMORA_EMBEDDING_BATCH_SIZE={config.embedding_batch_size}",
+                f"MEMORA_EMBEDDING_FP16={str(config.embedding_fp16).lower()}",
+                f"MEMORA_EMBEDDING_SPARSE={str(config.embedding_sparse).lower()}",
+                f"MEMORA_VECTOR_STORE={config.vector_store}",
                 f"MEMORA_VECTOR_STORE_URL={qdrant_url}",
                 f"MEMORA_VECTOR_STORE_COLLECTION={collection}",
-                "MEMORA_VECTOR_STORE_TIMEOUT=30",
-                "MEMORA_RETRIEVAL_MODE=hybrid",
-                "MEMORA_KEYWORD_RECALL=auto",
-                "MEMORA_HYBRID_PREFETCH_LIMIT=30",
+                f"MEMORA_VECTOR_STORE_TIMEOUT={config.vector_store_options['timeout']}",
+                f"MEMORA_RETRIEVAL_MODE={config.retrieval_mode}",
+                f"MEMORA_KEYWORD_RECALL={config.keyword_recall}",
+                f"MEMORA_HYBRID_PREFETCH_LIMIT={config.hybrid_prefetch_limit}",
                 "HF_OFFLINE=1",
             ]
         ),
@@ -142,9 +177,10 @@ def test_real_bge_m3_qdrant_cli_flow(tmp_path: Path):
     collection = configured_collection or f"memora_e2e_{uuid.uuid4().hex}"
     root = tmp_path / ".memora"
     env_path = tmp_path / ".env"
+    config = _bge_qdrant_config(root, model_path=model_path, qdrant_url=qdrant_url, collection=collection)
     _log(f"test root: {root}")
     _log(f"qdrant collection: {collection}")
-    _write_env_file(env_path, model_path=model_path, qdrant_url=qdrant_url, collection=collection)
+    _write_env_file(env_path, config=config, qdrant_url=qdrant_url, collection=collection)
 
     try:
         _log("step: init storage and qdrant collection")
@@ -210,6 +246,84 @@ def test_real_bge_m3_qdrant_cli_flow(tmp_path: Path):
         _assert_ok(after_rebuild)
         assert "language" in after_rebuild.stdout
         _log(f"finished real E2E elapsed={time.perf_counter() - suite_started:.2f}s")
+    finally:
+        keep_collection = os.environ.get("MEMORA_E2E_KEEP_QDRANT_COLLECTION", "").strip().lower() in RUN_TRUE_VALUES
+        if not keep_collection and configured_collection is None:
+            _cleanup_qdrant_collection(qdrant_url, collection)
+
+
+@pytest.mark.e2e
+def test_real_bge_m3_qdrant_in_process_flow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    if not _e2e_enabled():
+        pytest.skip("set RUN_MEMORA_E2E=1 to run the real in-process BGE-M3 + Qdrant E2E test")
+
+    suite_started = time.perf_counter()
+    _log("start real BGE-M3 + Qdrant in-process E2E")
+    _require_module("FlagEmbedding")
+    _require_module("qdrant_client")
+
+    model_path = Path(os.environ.get("MEMORA_E2E_BGE_MODEL_PATH", str(DEFAULT_BGE_MODEL_PATH)))
+    _log(f"preflight: model_path={model_path}")
+    assert model_path.exists(), f"RUN_MEMORA_E2E=1 but BGE-M3 model path does not exist: {model_path}"
+    _log("preflight ok: model path exists")
+
+    qdrant_url = os.environ.get("MEMORA_E2E_QDRANT_URL", DEFAULT_QDRANT_URL)
+    _require_qdrant(qdrant_url)
+    configured_collection = os.environ.get("MEMORA_E2E_QDRANT_COLLECTION")
+    collection = configured_collection or f"memora_e2e_inproc_{uuid.uuid4().hex}"
+    root = tmp_path / ".memora-inprocess"
+    config = _bge_qdrant_config(root, model_path=model_path, qdrant_url=qdrant_url, collection=collection)
+    _log(f"test root: {root}")
+    _log(f"qdrant collection: {collection}")
+
+    monkeypatch.setenv("HF_OFFLINE", "1")
+    monkeypatch.setenv("MEMORA_TRACE_TIMING", "1")
+
+    try:
+        manager = _timed("construct MemoryManager once", lambda: MemoryManager(config))
+        _timed("init storage and qdrant collection", manager.init_storage)
+
+        language = _timed(
+            "save preference memory",
+            lambda: manager.save_memory(
+                "preference",
+                "The user prefers answers in Chinese.",
+                "Response language preference.",
+                name="language",
+            ),
+        )
+        project = _timed(
+            "save project memory",
+            lambda: manager.save_memory(
+                "project",
+                "This project uses pytest as its test framework.",
+                "Project test stack.",
+                name="test-stack",
+            ),
+        )
+
+        language_results = _timed("search preference memory", lambda: manager.retrieve_memory("answer in Chinese"))
+        assert language_results
+        assert language_results[0].memory.id == language.id
+
+        project_results = _timed("search project memory", lambda: manager.retrieve_memory("pytest test framework"))
+        assert project_results
+        assert project_results[0].memory.id == project.id
+
+        verified = _timed("verify memory and vector indexes", manager.verify_memories)
+        assert verified["checked"] == 2
+        assert verified["index_ok"] is True
+        assert verified["vector_ok"] is True
+        assert verified["vector_missing"] == []
+        assert verified["vector_orphans"] == []
+        assert verified["embedding_mismatches"] == []
+
+        _timed("rebuild indexes", manager.rebuild_index)
+
+        after_rebuild = _timed("search after rebuild", lambda: manager.retrieve_memory("Chinese response preference"))
+        assert after_rebuild
+        assert after_rebuild[0].memory.id == language.id
+        _log(f"finished real in-process E2E elapsed={time.perf_counter() - suite_started:.2f}s")
     finally:
         keep_collection = os.environ.get("MEMORA_E2E_KEEP_QDRANT_COLLECTION", "").strip().lower() in RUN_TRUE_VALUES
         if not keep_collection and configured_collection is None:
