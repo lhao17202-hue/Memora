@@ -11,6 +11,7 @@ from typing import Any, Protocol
 
 from .errors import MemoryValidationError
 from .schema import MemoryItem
+from .timing import trace_timing
 
 SUPPORTED_EMBEDDING_PROVIDERS = ("hash", "bge")
 RESERVED_EMBEDDING_PROVIDERS = ("openai", "cohere", "voyage", "sentence-transformers", "e5", "ollama")
@@ -111,28 +112,31 @@ class BgeM3EmbeddingProvider:
             raise MemoryValidationError("embedding dimension must be > 0")
         if batch_size <= 0:
             raise MemoryValidationError("embedding_batch_size must be > 0")
-        try:
-            from FlagEmbedding import BGEM3FlagModel
-        except Exception as exc:  # noqa: BLE001 - optional dependency may fail during import
-            raise MemoryValidationError("embedding_provider 'bge' requires optional dependency FlagEmbedding") from exc
+        with trace_timing("BgeM3EmbeddingProvider.import FlagEmbedding"):
+            try:
+                from FlagEmbedding import BGEM3FlagModel
+            except Exception as exc:  # noqa: BLE001 - optional dependency may fail during import
+                raise MemoryValidationError("embedding_provider 'bge' requires optional dependency FlagEmbedding") from exc
         self.model = model
         self.dimension = dimension
         self.batch_size = batch_size
         self.model_path = str(model_path)
         self.supports_sparse = True
         self.return_sparse = return_sparse
-        self._model = BGEM3FlagModel(self.model_path, use_fp16=fp16)
+        with trace_timing(f"BgeM3EmbeddingProvider.load_model path={self.model_path} fp16={fp16}"):
+            self._model = BGEM3FlagModel(self.model_path, use_fp16=fp16)
 
     def embed(self, texts: list[str]) -> list[EmbeddingVector]:
         if not texts:
             return []
-        result = self._model.encode(
-            sentences=texts,
-            return_dense=True,
-            return_sparse=self.return_sparse,
-            return_colbert_vecs=False,
-            batch_size=self.batch_size,
-        )
+        with trace_timing(f"BgeM3EmbeddingProvider.embed count={len(texts)} sparse={self.return_sparse}"):
+            result = self._model.encode(
+                sentences=texts,
+                return_dense=True,
+                return_sparse=self.return_sparse,
+                return_colbert_vecs=False,
+                batch_size=self.batch_size,
+            )
         dense = result.get("dense_vecs") if isinstance(result, dict) else getattr(result, "dense_vecs", None)
         if dense is None:
             raise MemoryValidationError("bge embedding result missing dense_vecs")

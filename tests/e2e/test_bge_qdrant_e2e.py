@@ -22,7 +22,7 @@ def _log(message: str) -> None:
     print(f"[memora-e2e] {message}", flush=True)
 
 
-def _clip(value: str, *, limit: int = 1200) -> str:
+def _clip(value: str, *, limit: int = 4000) -> str:
     value = value.strip()
     if len(value) <= limit:
         return value
@@ -32,6 +32,7 @@ def _clip(value: str, *, limit: int = 1200) -> str:
 def _run_memora(root: Path, env_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env.setdefault("HF_OFFLINE", "1")
+    env.setdefault("MEMORA_TRACE_TIMING", "1")
     env.setdefault("PYTHONIOENCODING", "utf-8")
     command = [sys.executable, "-m", "memora", "--root", str(root), "--env-file", str(env_path), *args]
     _log("run: " + " ".join(str(part) for part in command))
