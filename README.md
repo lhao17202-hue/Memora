@@ -118,7 +118,7 @@ pip install -e ".[qdrant]"
 pip install -e ".[bge,qdrant]"
 ```
 
-A local `.env` file can hold embedding and vector-index settings. Provider-specific vector store settings are parsed into `MemoryConfig.vector_store_options`; they are not top-level `MemoryConfig` fields. Dense-only BGE with SQLite looks like:
+A local `.env` file can hold embedding and vector-index settings. Copy `.env.example` to `.env`, then adjust the local model path, vector store, and Qdrant settings for your machine. Provider-specific vector store settings are parsed into `MemoryConfig.vector_store_options`; they are not top-level `MemoryConfig` fields. Dense-only BGE with SQLite looks like:
 
 ```env
 MEMORA_BACKEND=sqlite
