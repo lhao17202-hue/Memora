@@ -29,3 +29,6 @@ memora = "memora.cli:main"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+  "e2e: tests that require real local external services such as BGE-M3 and Qdrant",
+]

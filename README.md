@@ -189,6 +189,24 @@ vector_ok=True missing=0 orphans=0 mismatches=0 sync_errors=0
 
 `rebuild-index` rebuilds both the normal memory index and the RAG vector index when `--rag` is enabled. JSON `import` also syncs imported active memories into the vector index.
 
+To run the optional real BGE-M3 + Qdrant end-to-end test, start Qdrant, make sure the local BGE-M3 model exists, then run:
+
+```bash
+RUN_MEMORA_E2E=1 \
+MEMORA_E2E_BGE_MODEL_PATH='C:\Download\bge-m3' \
+MEMORA_E2E_QDRANT_URL=http://127.0.0.1:6333 \
+pytest tests/e2e/test_bge_qdrant_e2e.py -q
+```
+
+On PowerShell:
+
+```powershell
+$env:RUN_MEMORA_E2E = "1"
+$env:MEMORA_E2E_BGE_MODEL_PATH = "C:\Download\bge-m3"
+$env:MEMORA_E2E_QDRANT_URL = "http://127.0.0.1:6333"
+pytest tests/e2e/test_bge_qdrant_e2e.py -q
+```
+
 The selected local memory backend remains the source of truth. RAG is a retrieval index, not a separate authoritative memory store.
 
 ## Data Portability
