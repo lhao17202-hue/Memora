@@ -10,6 +10,7 @@ import pytest
 
 from memora.config import MemoryConfig
 from memora.manager import MemoryManager
+from memora.vector_store import QDRANT_DENSE_VECTOR_NAME, QDRANT_SPARSE_VECTOR_NAME, qdrant_point_id
 
 
 RUN_TRUE_VALUES = {"1", "true", "yes", "on"}
@@ -60,6 +61,14 @@ def _assert_ok(result: subprocess.CompletedProcess[str]) -> None:
     assert result.returncode == 0, f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
 
 
+def _saved_memory_id(result: subprocess.CompletedProcess[str]) -> str:
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 3 and parts[0] == "saved":
+            return parts[1]
+    raise AssertionError(f"could not parse saved memory id from stdout:\n{result.stdout}")
+
+
 def _timed(label: str, fn):
     _log(f"step: {label}")
     started = time.perf_counter()
@@ -86,6 +95,57 @@ def _require_qdrant(qdrant_url: str) -> None:
     except Exception as exc:
         pytest.fail(f"RUN_MEMORA_E2E=1 but Qdrant is not reachable at {qdrant_url}: {exc!r}")
     _log(f"preflight ok: qdrant reachable {qdrant_url}")
+
+
+def _qdrant_client(qdrant_url: str):
+    from qdrant_client import QdrantClient
+
+    return QdrantClient(url=qdrant_url, timeout=10)
+
+
+def _assert_qdrant_collection_ready(qdrant_url: str, collection: str) -> None:
+    client = _qdrant_client(qdrant_url)
+    assert client.collection_exists(collection_name=collection)
+    info = client.get_collection(collection_name=collection)
+    params = getattr(getattr(info, "config", None), "params", None)
+    vectors = getattr(params, "vectors", None)
+    assert isinstance(vectors, dict)
+    assert QDRANT_DENSE_VECTOR_NAME in vectors
+    dense = vectors[QDRANT_DENSE_VECTOR_NAME]
+    assert int(getattr(dense, "size")) == 1024
+    sparse_vectors = getattr(params, "sparse_vectors", None)
+    assert isinstance(sparse_vectors, dict)
+    assert QDRANT_SPARSE_VECTOR_NAME in sparse_vectors
+
+
+def _assert_qdrant_payloads(qdrant_url: str, collection: str, expected_types: dict[str, str]) -> None:
+    client = _qdrant_client(qdrant_url)
+    points = client.retrieve(
+        collection_name=collection,
+        ids=[qdrant_point_id(memory_id) for memory_id in expected_types],
+        with_payload=True,
+        with_vectors=False,
+    )
+    payloads = {}
+    for point in points:
+        payload = getattr(point, "payload", None) or {}
+        memory_id = payload.get("memory_id")
+        if isinstance(memory_id, str):
+            payloads[memory_id] = payload
+    assert set(payloads) == set(expected_types)
+    for memory_id, memory_type in expected_types.items():
+        payload = payloads[memory_id]
+        assert payload["memory_id"] == memory_id
+        assert payload["type"] == memory_type
+        assert payload["status"] == "active"
+        assert payload["provider"] == "bge"
+        assert payload["model"] == "bge-m3"
+        assert payload["dimension"] == 1024
+        assert payload["vector_store"] == "qdrant"
+        assert payload["retrieval_mode"] == "hybrid"
+        assert payload["sparse_enabled"] is True
+        assert isinstance(payload["text_hash"], str)
+        assert payload["text_hash"]
 
 
 def _bge_qdrant_config(root: Path, *, model_path: Path, qdrant_url: str, collection: str) -> MemoryConfig:
@@ -201,6 +261,7 @@ def test_real_bge_m3_qdrant_cli_flow(tmp_path: Path):
             "The user prefers answers in Chinese.",
         )
         _assert_ok(language)
+        language_id = _saved_memory_id(language)
 
         _log("step: save project memory")
         project = _run_memora(
@@ -217,6 +278,15 @@ def test_real_bge_m3_qdrant_cli_flow(tmp_path: Path):
             "This project uses pytest as its test framework.",
         )
         _assert_ok(project)
+        project_id = _saved_memory_id(project)
+
+        _timed(
+            "assert qdrant collection and payloads after cli saves",
+            lambda: (
+                _assert_qdrant_collection_ready(qdrant_url, collection),
+                _assert_qdrant_payloads(qdrant_url, collection, {language_id: "preference", project_id: "project"}),
+            ),
+        )
 
         _log("step: search preference memory")
         language_search = _run_memora(root, env_path, "search", "answer in Chinese")
@@ -239,6 +309,10 @@ def test_real_bge_m3_qdrant_cli_flow(tmp_path: Path):
         rebuilt = _run_memora(root, env_path, "rebuild-index")
         _assert_ok(rebuilt)
         assert "rebuilt index" in rebuilt.stdout
+        _timed(
+            "assert qdrant payloads after cli rebuild",
+            lambda: _assert_qdrant_payloads(qdrant_url, collection, {language_id: "preference", project_id: "project"}),
+        )
 
         _log("step: search after rebuild")
         after_rebuild = _run_memora(root, env_path, "search", "Chinese response preference")
@@ -299,6 +373,14 @@ def test_real_bge_m3_qdrant_in_process_flow(tmp_path: Path, monkeypatch: pytest.
             ),
         )
 
+        _timed(
+            "assert qdrant collection and payloads after in-process saves",
+            lambda: (
+                _assert_qdrant_collection_ready(qdrant_url, collection),
+                _assert_qdrant_payloads(qdrant_url, collection, {language.id: "preference", project.id: "project"}),
+            ),
+        )
+
         language_results = _timed("search preference memory", lambda: manager.retrieve_memory("answer in Chinese"))
         assert language_results
         assert language_results[0].memory.id == language.id
@@ -316,6 +398,10 @@ def test_real_bge_m3_qdrant_in_process_flow(tmp_path: Path, monkeypatch: pytest.
         assert verified["embedding_mismatches"] == []
 
         _timed("rebuild indexes", manager.rebuild_index)
+        _timed(
+            "assert qdrant payloads after in-process rebuild",
+            lambda: _assert_qdrant_payloads(qdrant_url, collection, {language.id: "preference", project.id: "project"}),
+        )
 
         after_rebuild = _timed("search after rebuild", lambda: manager.retrieve_memory("Chinese response preference"))
         assert after_rebuild
