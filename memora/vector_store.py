@@ -15,7 +15,6 @@ from typing import Any, Protocol
 from .config import MemoryConfig
 from .embeddings import EmbeddingVector, SparseVector, embedding_dense
 from .errors import MemoryValidationError
-from .timing import trace_timing
 from .utils import now_utc
 
 SUPPORTED_VECTOR_STORES = ("sqlite", "qdrant")
@@ -279,11 +278,10 @@ class QdrantVectorStore:
 
     def __init__(self, config: QdrantVectorStoreConfig):
         self.config = config
-        with trace_timing("QdrantVectorStore.import qdrant_client"):
-            try:
-                from qdrant_client import QdrantClient, models
-            except Exception as exc:  # noqa: BLE001 - optional dependency may fail during import
-                raise MemoryValidationError("vector_store 'qdrant' requires optional dependency qdrant-client; install with: pip install -e \".[qdrant]\"") from exc
+        try:
+            from qdrant_client import QdrantClient, models
+        except Exception as exc:  # noqa: BLE001 - optional dependency may fail during import
+            raise MemoryValidationError("vector_store 'qdrant' requires optional dependency qdrant-client; install with: pip install -e \".[qdrant]\"") from exc
         self.models = models
         self.collection = config.collection
         client_kwargs: dict[str, Any] = {
@@ -296,103 +294,97 @@ class QdrantVectorStore:
         else:
             client_kwargs["host"] = config.host
             client_kwargs["port"] = config.port
-        with trace_timing(f"QdrantVectorStore.client collection={self.collection}"):
-            self.client = QdrantClient(**{key: value for key, value in client_kwargs.items() if value is not None})
+        self.client = QdrantClient(**{key: value for key, value in client_kwargs.items() if value is not None})
 
     def init_storage(self) -> None:
-        with trace_timing(f"QdrantVectorStore.init_storage collection={self.collection}"):
-            exists = self._collection_exists()
-            if exists and self.config.recreate_collection:
-                self.client.delete_collection(collection_name=self.collection)
-                exists = False
-            if exists:
-                self._validate_collection()
-                return
-            vectors_config = {
-                QDRANT_DENSE_VECTOR_NAME: self.models.VectorParams(size=self.config.dimension, distance=self.models.Distance.COSINE)
-            }
-            kwargs: dict[str, Any] = {"collection_name": self.collection, "vectors_config": vectors_config}
-            if self.config.retrieval_mode == "hybrid":
-                kwargs["sparse_vectors_config"] = {QDRANT_SPARSE_VECTOR_NAME: self.models.SparseVectorParams()}
-            self.client.create_collection(**kwargs)
+        exists = self._collection_exists()
+        if exists and self.config.recreate_collection:
+            self.client.delete_collection(collection_name=self.collection)
+            exists = False
+        if exists:
+            self._validate_collection()
+            return
+        vectors_config = {
+            QDRANT_DENSE_VECTOR_NAME: self.models.VectorParams(size=self.config.dimension, distance=self.models.Distance.COSINE)
+        }
+        kwargs: dict[str, Any] = {"collection_name": self.collection, "vectors_config": vectors_config}
+        if self.config.retrieval_mode == "hybrid":
+            kwargs["sparse_vectors_config"] = {QDRANT_SPARSE_VECTOR_NAME: self.models.SparseVectorParams()}
+        self.client.create_collection(**kwargs)
 
     def upsert(self, memory_id: str, vector: EmbeddingVector | list[float], metadata: dict[str, Any]) -> None:
-        with trace_timing(f"QdrantVectorStore.upsert memory_id={memory_id}"):
-            self.init_storage()
-            embedding = _as_embedding_vector(vector)
-            qdrant_vector: dict[str, Any] = {QDRANT_DENSE_VECTOR_NAME: embedding.dense}
-            if self.config.retrieval_mode == "hybrid":
-                if embedding.sparse is None:
-                    raise MemoryValidationError("hybrid retrieval requires sparse embedding vectors")
-                qdrant_vector[QDRANT_SPARSE_VECTOR_NAME] = self._sparse_vector(embedding.sparse)
-            payload = dict(metadata)
-            payload["memory_id"] = memory_id
-            point = self.models.PointStruct(id=qdrant_point_id(memory_id), vector=qdrant_vector, payload=payload)
-            self.client.upsert(collection_name=self.collection, points=[point])
+        self.init_storage()
+        embedding = _as_embedding_vector(vector)
+        qdrant_vector: dict[str, Any] = {QDRANT_DENSE_VECTOR_NAME: embedding.dense}
+        if self.config.retrieval_mode == "hybrid":
+            if embedding.sparse is None:
+                raise MemoryValidationError("hybrid retrieval requires sparse embedding vectors")
+            qdrant_vector[QDRANT_SPARSE_VECTOR_NAME] = self._sparse_vector(embedding.sparse)
+        payload = dict(metadata)
+        payload["memory_id"] = memory_id
+        point = self.models.PointStruct(id=qdrant_point_id(memory_id), vector=qdrant_vector, payload=payload)
+        self.client.upsert(collection_name=self.collection, points=[point])
 
     def delete(self, memory_id: str) -> None:
         self.init_storage()
         self.client.delete(collection_name=self.collection, points_selector=[qdrant_point_id(memory_id)])
 
     def search(self, vector: EmbeddingVector | list[float], top_k: int, filters: dict[str, Any] | None = None, mode: str = "dense") -> list[VectorSearchHit]:
-        with trace_timing(f"QdrantVectorStore.search mode={mode} top_k={top_k}"):
-            if top_k <= 0:
-                return []
-            self.init_storage()
-            embedding = _as_embedding_vector(vector)
-            qdrant_filter = self._filter(filters)
-            if mode == "hybrid":
-                if embedding.sparse is None:
-                    raise MemoryValidationError("hybrid retrieval requires sparse query vector")
-                response = self.client.query_points(
-                    collection_name=self.collection,
-                    prefetch=[
-                        self.models.Prefetch(query=embedding.dense, using=QDRANT_DENSE_VECTOR_NAME, limit=self.config.hybrid_prefetch_limit),
-                        self.models.Prefetch(query=self._sparse_vector(embedding.sparse), using=QDRANT_SPARSE_VECTOR_NAME, limit=self.config.hybrid_prefetch_limit),
-                    ],
-                    query=self.models.FusionQuery(fusion=self.models.Fusion.RRF),
-                    query_filter=qdrant_filter,
-                    limit=top_k,
-                )
-                return self._hits(response, source="hybrid")
+        if top_k <= 0:
+            return []
+        self.init_storage()
+        embedding = _as_embedding_vector(vector)
+        qdrant_filter = self._filter(filters)
+        if mode == "hybrid":
+            if embedding.sparse is None:
+                raise MemoryValidationError("hybrid retrieval requires sparse query vector")
             response = self.client.query_points(
                 collection_name=self.collection,
-                query=embedding.dense,
-                using=QDRANT_DENSE_VECTOR_NAME,
+                prefetch=[
+                    self.models.Prefetch(query=embedding.dense, using=QDRANT_DENSE_VECTOR_NAME, limit=self.config.hybrid_prefetch_limit),
+                    self.models.Prefetch(query=self._sparse_vector(embedding.sparse), using=QDRANT_SPARSE_VECTOR_NAME, limit=self.config.hybrid_prefetch_limit),
+                ],
+                query=self.models.FusionQuery(fusion=self.models.Fusion.RRF),
                 query_filter=qdrant_filter,
                 limit=top_k,
             )
-            return self._hits(response, source="dense")
+            return self._hits(response, source="hybrid")
+        response = self.client.query_points(
+            collection_name=self.collection,
+            query=embedding.dense,
+            using=QDRANT_DENSE_VECTOR_NAME,
+            query_filter=qdrant_filter,
+            limit=top_k,
+        )
+        return self._hits(response, source="dense")
 
     def get_metadata(self, memory_id: str) -> dict[str, Any] | None:
-        with trace_timing(f"QdrantVectorStore.get_metadata memory_id={memory_id}"):
-            self.init_storage()
-            points = self.client.retrieve(collection_name=self.collection, ids=[qdrant_point_id(memory_id)], with_payload=True, with_vectors=False)
-            if not points:
-                return None
-            payload = getattr(points[0], "payload", None) or {}
-            return dict(payload) if isinstance(payload, dict) else None
+        self.init_storage()
+        points = self.client.retrieve(collection_name=self.collection, ids=[qdrant_point_id(memory_id)], with_payload=True, with_vectors=False)
+        if not points:
+            return None
+        payload = getattr(points[0], "payload", None) or {}
+        return dict(payload) if isinstance(payload, dict) else None
 
     def verify(self, expected_memory_ids: set[str]) -> dict[str, Any]:
-        with trace_timing(f"QdrantVectorStore.verify expected={len(expected_memory_ids)}"):
-            self.init_storage()
-            report: dict[str, Any] = {"vector_missing": [], "vector_orphans": [], "vector_errors": []}
-            vector_ids = set()
-            offset = None
-            while True:
-                points, offset = self.client.scroll(collection_name=self.collection, limit=256, offset=offset, with_payload=True, with_vectors=False)
-                for point in points:
-                    payload = getattr(point, "payload", None) or {}
-                    memory_id = payload.get("memory_id")
-                    if isinstance(memory_id, str):
-                        vector_ids.add(memory_id)
-                    else:
-                        report["vector_errors"].append({"memory_id": str(getattr(point, "id", "unknown")), "error": "payload missing memory_id"})
-                if offset is None:
-                    break
-            report["vector_missing"] = sorted(expected_memory_ids - vector_ids)
-            report["vector_orphans"] = sorted(vector_ids - expected_memory_ids)
-            return report
+        self.init_storage()
+        report: dict[str, Any] = {"vector_missing": [], "vector_orphans": [], "vector_errors": []}
+        vector_ids = set()
+        offset = None
+        while True:
+            points, offset = self.client.scroll(collection_name=self.collection, limit=256, offset=offset, with_payload=True, with_vectors=False)
+            for point in points:
+                payload = getattr(point, "payload", None) or {}
+                memory_id = payload.get("memory_id")
+                if isinstance(memory_id, str):
+                    vector_ids.add(memory_id)
+                else:
+                    report["vector_errors"].append({"memory_id": str(getattr(point, "id", "unknown")), "error": "payload missing memory_id"})
+            if offset is None:
+                break
+        report["vector_missing"] = sorted(expected_memory_ids - vector_ids)
+        report["vector_orphans"] = sorted(vector_ids - expected_memory_ids)
+        return report
 
     def _collection_exists(self) -> bool:
         if hasattr(self.client, "collection_exists"):

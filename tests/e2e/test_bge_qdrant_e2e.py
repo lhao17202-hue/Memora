@@ -35,7 +35,6 @@ def _clip(value: str, *, limit: int = 4000) -> str:
 def _run_memora(root: Path, env_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env.setdefault("HF_OFFLINE", "1")
-    env.setdefault("MEMORA_TRACE_TIMING", "1")
     env.setdefault("PYTHONIOENCODING", "utf-8")
     command = [sys.executable, "-m", "memora", "--root", str(root), "--env-file", str(env_path), *args]
     _log("run: " + " ".join(str(part) for part in command))
@@ -277,8 +276,6 @@ def test_real_bge_m3_qdrant_in_process_flow(tmp_path: Path, monkeypatch: pytest.
     _log(f"qdrant collection: {collection}")
 
     monkeypatch.setenv("HF_OFFLINE", "1")
-    monkeypatch.setenv("MEMORA_TRACE_TIMING", "1")
-
     try:
         manager = _timed("construct MemoryManager once", lambda: MemoryManager(config))
         _timed("init storage and qdrant collection", manager.init_storage)

@@ -36,7 +36,6 @@ from .session import SessionService
 from .sqlite_store import SQLiteMemoryStore
 from .stores import FileMemoryStore, FileSessionStore, MemoryCandidateStore, MemoryStore, SessionStore
 from .taxonomy import PINNED_CONTEXT_TYPES, configured_default_weight
-from .timing import trace_timing
 from .utils import estimate_tokens, now_utc, slugify
 from .vector_store import VectorStore
 
@@ -50,44 +49,39 @@ class MemoryManager:
         relation_judge: MemoryRelationJudge | None = None,
         vector_store: VectorStore | None = None,
     ):
-        with trace_timing("MemoryManager.__init__"):
-            self.config = config or MemoryConfig()
-            self.memory_store = memory_store or self._build_memory_store()
-            self.session_store = session_store or FileSessionStore(self.config)
-            self.session_service = SessionService(self.session_store)
-            self.policy = MemoryPolicy(self.config)
-            self.retriever = MemoryRetriever()
-            self.formatter = MemoryFormatter()
-            self.lifecycle = LifecycleManager(self.config)
-            self.rag_index: RagIndex | None = None
-            self.rag_retriever: RagRetriever | None = None
-            self.relation_resolver: SemanticMemoryRelationResolver | None = None
-            self.relation_judge = relation_judge
-            self._rag_sync_errors: list[dict[str, str]] = []
-            embedder = None
-            relation_resolution_enabled = self.config.semantic_write_relations_enabled or self.config.llm_relation_judge_enabled
-            if self.config.rag_enabled or relation_resolution_enabled:
-                with trace_timing("MemoryManager.build_embedding_provider"):
-                    embedder = build_embedding_provider(self.config)
-            if relation_resolution_enabled and embedder is not None:
-                with trace_timing("MemoryManager.build_relation_resolver"):
-                    self.relation_resolver = SemanticMemoryRelationResolver(embedder, self.config)
-            if self.config.rag_enabled and embedder is not None:
-                with trace_timing("MemoryManager.build_vector_store"):
-                    resolved_vector_store = vector_store or build_vector_store(self.config)
-                with trace_timing("MemoryManager.build_reranker"):
-                    reranker = build_reranker(self.config)
-                self.rag_index = RagIndex(self.memory_store, embedder, resolved_vector_store, self.config)
-                candidate_store = self.memory_store if isinstance(self.memory_store, MemoryCandidateStore) else None
-                self.rag_retriever = RagRetriever(
-                    self.memory_store,
-                    candidate_store,
-                    embedder,
-                    resolved_vector_store,
-                    self.retriever,
-                    reranker,
-                    self.config,
-                )
+        self.config = config or MemoryConfig()
+        self.memory_store = memory_store or self._build_memory_store()
+        self.session_store = session_store or FileSessionStore(self.config)
+        self.session_service = SessionService(self.session_store)
+        self.policy = MemoryPolicy(self.config)
+        self.retriever = MemoryRetriever()
+        self.formatter = MemoryFormatter()
+        self.lifecycle = LifecycleManager(self.config)
+        self.rag_index: RagIndex | None = None
+        self.rag_retriever: RagRetriever | None = None
+        self.relation_resolver: SemanticMemoryRelationResolver | None = None
+        self.relation_judge = relation_judge
+        self._rag_sync_errors: list[dict[str, str]] = []
+        embedder = None
+        relation_resolution_enabled = self.config.semantic_write_relations_enabled or self.config.llm_relation_judge_enabled
+        if self.config.rag_enabled or relation_resolution_enabled:
+            embedder = build_embedding_provider(self.config)
+        if relation_resolution_enabled and embedder is not None:
+            self.relation_resolver = SemanticMemoryRelationResolver(embedder, self.config)
+        if self.config.rag_enabled and embedder is not None:
+            resolved_vector_store = vector_store or build_vector_store(self.config)
+            reranker = build_reranker(self.config)
+            self.rag_index = RagIndex(self.memory_store, embedder, resolved_vector_store, self.config)
+            candidate_store = self.memory_store if isinstance(self.memory_store, MemoryCandidateStore) else None
+            self.rag_retriever = RagRetriever(
+                self.memory_store,
+                candidate_store,
+                embedder,
+                resolved_vector_store,
+                self.retriever,
+                reranker,
+                self.config,
+            )
 
     def _build_memory_store(self) -> MemoryStore:
         if self.config.memory_backend == "file":

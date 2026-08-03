@@ -19,7 +19,6 @@ from .reranker import RESERVED_RERANKERS, DeterministicReranker, NoOpReranker, R
 from .retriever import MemoryRetriever
 from .schema import MemoryItem, MemoryQuery, MemorySearchResult
 from .stores import MemoryCandidateStore, MemoryStore
-from .timing import trace_timing
 from .vector_store import RESERVED_VECTOR_STORES, QdrantVectorStore, QdrantVectorStoreConfig, SQLiteVectorStore, VectorSearchHit, VectorStore
 
 
@@ -140,54 +139,50 @@ class RagIndex:
         self.config = config or MemoryConfig()
 
     def init_storage(self) -> None:
-        with trace_timing("RagIndex.init_storage"):
-            self.vector_store.init_storage()
+        self.vector_store.init_storage()
 
     def sync_memory(self, item: MemoryItem) -> None:
-        with trace_timing(f"RagIndex.sync_memory memory_id={item.id} status={item.status}"):
-            if item.status != "active":
-                self.vector_store.delete(item.id)
-                return
-            text = memory_embedding_text(item)
-            vector = self.embedder.embed([text])[0]
-            self.vector_store.upsert(item.id, vector, build_vector_metadata(item, self.embedder, text, self.config))
+        if item.status != "active":
+            self.vector_store.delete(item.id)
+            return
+        text = memory_embedding_text(item)
+        vector = self.embedder.embed([text])[0]
+        self.vector_store.upsert(item.id, vector, build_vector_metadata(item, self.embedder, text, self.config))
 
     def delete_memory(self, memory_id: str) -> None:
         self.vector_store.delete(memory_id)
 
     def rebuild(self) -> None:
-        with trace_timing("RagIndex.rebuild"):
-            self.vector_store.init_storage()
-            active_ids = set()
-            for item in self.memory_store.list_memories(include_archived=True):
-                if item.status == "active":
-                    active_ids.add(item.id)
-                    self.sync_memory(item)
-                else:
-                    self.vector_store.delete(item.id)
-            report = self.vector_store.verify(active_ids)
-            for orphan_id in report.get("vector_orphans", []):
-                self.vector_store.delete(orphan_id)
+        self.vector_store.init_storage()
+        active_ids = set()
+        for item in self.memory_store.list_memories(include_archived=True):
+            if item.status == "active":
+                active_ids.add(item.id)
+                self.sync_memory(item)
+            else:
+                self.vector_store.delete(item.id)
+        report = self.vector_store.verify(active_ids)
+        for orphan_id in report.get("vector_orphans", []):
+            self.vector_store.delete(orphan_id)
 
     def verify(self) -> dict[str, Any]:
-        with trace_timing("RagIndex.verify"):
-            active_items = [item for item in self.memory_store.list_memories(include_archived=True) if item.status == "active"]
-            expected_ids = {item.id for item in active_items}
-            report = self.vector_store.verify(expected_ids)
-            mismatches = []
-            for item in active_items:
-                text = memory_embedding_text(item)
-                metadata = build_vector_metadata(item, self.embedder, text, self.config)
-                hit_metadata = self.vector_store.get_metadata(item.id)
-                if hit_metadata is None:
-                    continue
-                for key in ("provider", "model", "dimension", "text_hash"):
-                    if hit_metadata.get(key) != metadata.get(key):
-                        mismatches.append({"memory_id": item.id, "field": key})
-                        break
-            report["embedding_mismatches"] = mismatches
-            report["vector_ok"] = not report.get("vector_missing") and not report.get("vector_orphans") and not report.get("vector_errors") and not mismatches
-            return report
+        active_items = [item for item in self.memory_store.list_memories(include_archived=True) if item.status == "active"]
+        expected_ids = {item.id for item in active_items}
+        report = self.vector_store.verify(expected_ids)
+        mismatches = []
+        for item in active_items:
+            text = memory_embedding_text(item)
+            metadata = build_vector_metadata(item, self.embedder, text, self.config)
+            hit_metadata = self.vector_store.get_metadata(item.id)
+            if hit_metadata is None:
+                continue
+            for key in ("provider", "model", "dimension", "text_hash"):
+                if hit_metadata.get(key) != metadata.get(key):
+                    mismatches.append({"memory_id": item.id, "field": key})
+                    break
+        report["embedding_mismatches"] = mismatches
+        report["vector_ok"] = not report.get("vector_missing") and not report.get("vector_orphans") and not report.get("vector_errors") and not mismatches
+        return report
 
 
 class RagRetriever:
@@ -245,23 +240,21 @@ class RagRetriever:
 
     def _vector_recall(self, query: MemoryQuery, allowed: dict[str, MemoryItem]) -> list[VectorSearchHit]:
         try:
-            with trace_timing("RagRetriever.vector_recall.embed_query"):
-                query_vector = self.embedder.embed([query.query])[0]
+            query_vector = self.embedder.embed([query.query])[0]
             mode = "hybrid" if self.config.retrieval_mode == "hybrid" and query_vector.sparse is not None else "dense"
-            with trace_timing(f"RagRetriever.vector_recall.search mode={mode}"):
-                hits = self.vector_store.search(
-                    query_vector,
-                    top_k=self.config.vector_candidate_limit,
-                    filters={
-                        "user_id": query.user_id,
-                        "project_id": query.project_id,
-                        "workspace_id": query.workspace_id,
-                        "status": "active" if not query.include_archived else None,
-                        "types": query.memory_types,
-                        "tags": query.tags,
-                    },
-                    mode=mode,
-                )
+            hits = self.vector_store.search(
+                query_vector,
+                top_k=self.config.vector_candidate_limit,
+                filters={
+                    "user_id": query.user_id,
+                    "project_id": query.project_id,
+                    "workspace_id": query.workspace_id,
+                    "status": "active" if not query.include_archived else None,
+                    "types": query.memory_types,
+                    "tags": query.tags,
+                },
+                mode=mode,
+            )
         except Exception:  # noqa: BLE001 - retrieval should degrade
             return []
         return [hit for hit in hits if hit.memory_id in allowed]

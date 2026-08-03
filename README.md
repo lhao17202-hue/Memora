@@ -207,8 +207,6 @@ $env:MEMORA_E2E_QDRANT_URL = "http://127.0.0.1:6333"
 python -m pytest tests/e2e/test_bge_qdrant_e2e.py -q -s
 ```
 
-The E2E test enables `MEMORA_TRACE_TIMING=1` for its Memora subprocesses, so `-s` prints internal timings for manager construction, BGE model loading, embedding, Qdrant operations, verify, and rebuild.
-
 For a faster real BGE-M3 + Qdrant check that keeps the model loaded in one Python process, run only the in-process E2E:
 
 ```powershell
