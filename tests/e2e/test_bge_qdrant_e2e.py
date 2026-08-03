@@ -2,6 +2,7 @@ import os
 import subprocess
 import sys
 import uuid
+from importlib import import_module
 from pathlib import Path
 
 import pytest
@@ -32,6 +33,22 @@ def _run_memora(root: Path, env_path: Path, *args: str) -> subprocess.CompletedP
 
 def _assert_ok(result: subprocess.CompletedProcess[str]) -> None:
     assert result.returncode == 0, f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+
+
+def _require_module(name: str) -> None:
+    try:
+        import_module(name)
+    except Exception as exc:
+        pytest.fail(f"RUN_MEMORA_E2E=1 but required module '{name}' cannot be imported: {exc!r}")
+
+
+def _require_qdrant(qdrant_url: str) -> None:
+    try:
+        from qdrant_client import QdrantClient
+
+        QdrantClient(url=qdrant_url, timeout=10).get_collections()
+    except Exception as exc:
+        pytest.fail(f"RUN_MEMORA_E2E=1 but Qdrant is not reachable at {qdrant_url}: {exc!r}")
 
 
 def _write_env_file(env_path: Path, *, model_path: Path, qdrant_url: str, collection: str) -> None:
@@ -77,14 +94,14 @@ def test_real_bge_m3_qdrant_cli_flow(tmp_path: Path):
     if not _e2e_enabled():
         pytest.skip("set RUN_MEMORA_E2E=1 to run the real BGE-M3 + Qdrant E2E test")
 
-    pytest.importorskip("FlagEmbedding")
-    pytest.importorskip("qdrant_client")
+    _require_module("FlagEmbedding")
+    _require_module("qdrant_client")
 
     model_path = Path(os.environ.get("MEMORA_E2E_BGE_MODEL_PATH", str(DEFAULT_BGE_MODEL_PATH)))
-    if not model_path.exists():
-        pytest.skip(f"BGE-M3 model path does not exist: {model_path}")
+    assert model_path.exists(), f"RUN_MEMORA_E2E=1 but BGE-M3 model path does not exist: {model_path}"
 
     qdrant_url = os.environ.get("MEMORA_E2E_QDRANT_URL", DEFAULT_QDRANT_URL)
+    _require_qdrant(qdrant_url)
     configured_collection = os.environ.get("MEMORA_E2E_QDRANT_COLLECTION")
     collection = configured_collection or f"memora_e2e_{uuid.uuid4().hex}"
     root = tmp_path / ".memora"
