@@ -310,7 +310,7 @@ result = runtime.remember_extracted(
 print(result.action, result.reason)
 ```
 
-Optional LLM extraction keeps extraction and writing separate:
+Optional LLM extraction keeps extraction and writing separate. Extraction can receive conversation messages plus an optional `WorkingMemoryState` snapshot. Conversation messages are treated as direct evidence; working memory is treated as agent-maintained short-term state that may contain durable conclusions, reusable lessons, tool-use lessons, or important decisions. The extractor still returns the same `ExtractionArtifact` JSON contract, and policy/write behavior is unchanged.
 
 ```python
 from memora.extraction import LLMMemoryExtractor
