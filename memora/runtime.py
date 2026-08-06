@@ -6,7 +6,7 @@ from .config import MemoryConfig
 from .extraction import ExtractionArtifact, MemoryExtractor
 from .manager import MemoryManager
 from .relations import MemoryRelationJudge
-from .schema import MemoryCandidate, MemoryItem, MemorySearchResult, MemoryWriteResult, SessionMessage
+from .schema import MemoryCandidate, MemoryItem, MemorySearchResult, MemoryWriteResult, SessionMessage, WorkingMemoryState
 from .taxonomy import ON_DEMAND_CONTEXT_TYPES
 
 
@@ -172,6 +172,7 @@ class MemoryRuntime:
         self,
         messages: list[SessionMessage | dict[str, str]],
         extractor: MemoryExtractor | None = None,
+        working_memory: WorkingMemoryState | dict[str, object] | None = None,
     ) -> ExtractionArtifact:
         selected_extractor = extractor or self.extractor
         if selected_extractor is None:
@@ -181,7 +182,7 @@ class MemoryRuntime:
                 errors=["memory_extractor_not_configured"],
                 source="not_configured",
             )
-        return selected_extractor.extract(messages)
+        return selected_extractor.extract(messages, working_memory=working_memory)
 
     def remember_extraction_artifact(
         self,
@@ -236,8 +237,9 @@ class MemoryRuntime:
         workspace_id: str | None = None,
         session_id: str | None = None,
         extractor: MemoryExtractor | None = None,
+        working_memory: WorkingMemoryState | dict[str, object] | None = None,
     ) -> tuple[ExtractionArtifact, list[MemoryWriteResult]]:
-        artifact = self.extract_memories(messages, extractor=extractor)
+        artifact = self.extract_memories(messages, extractor=extractor, working_memory=working_memory)
         results = self.remember_extraction_artifact(
             artifact,
             user_id=user_id,

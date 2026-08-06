@@ -3,11 +3,11 @@ from pathlib import Path
 import pytest
 
 from memora.config import MemoryConfig
-from memora.extraction import LLMMemoryExtractor, parse_extraction_json
+from memora.extraction import ExtractionArtifact, ExtractedMemory, LLMMemoryExtractor, parse_extraction_json
 from memora.manager import MemoryManager
 from memora.relations import LLMMemoryRelationJudge
 from memora.runtime import MemoryRuntime
-from memora.schema import MemoryCandidate, MemoryRelation
+from memora.schema import MemoryCandidate, MemoryRelation, SessionMessage, WorkingMemoryState
 
 
 def make_runtime(tmp_path: Path) -> MemoryRuntime:
@@ -34,6 +34,18 @@ class FakeLLMClient:
 
     def complete(self, messages):
         return self.response
+
+
+class RecordingExtractor:
+    def __init__(self, artifact: ExtractionArtifact):
+        self.artifact = artifact
+        self.messages = None
+        self.working_memory = None
+
+    def extract(self, messages, working_memory=None):
+        self.messages = messages
+        self.working_memory = working_memory
+        return self.artifact
 
 
 def test_build_context_returns_formatted_memory(tmp_path: Path):
@@ -303,6 +315,47 @@ def test_extract_memories_without_configured_extractor_does_not_write(tmp_path: 
     assert artifact.errors == ["memory_extractor_not_configured"]
     assert results == []
     assert runtime.manager.list_memories() == []
+
+
+def test_extract_memories_forwards_working_memory_to_extractor(tmp_path):
+    state = WorkingMemoryState(process_notes=["Use working memory as extraction evidence."])
+    artifact = ExtractionArtifact(should_remember=False, memories=[])
+    extractor = RecordingExtractor(artifact)
+    runtime = MemoryRuntime(config=MemoryConfig(root_dir=str(tmp_path / ".memora")), extractor=extractor)
+    messages = [SessionMessage(role="assistant", content="Finished extraction design.")]
+
+    returned = runtime.extract_memories(messages, working_memory=state)
+
+    assert returned is artifact
+    assert extractor.messages == messages
+    assert extractor.working_memory is state
+
+
+
+def test_extract_and_remember_forwards_working_memory(tmp_path):
+    state = WorkingMemoryState(process_notes=["Working memory can produce reflective memories."])
+    artifact = ExtractionArtifact(
+        should_remember=True,
+        memories=[
+            ExtractedMemory(
+                type="reflective",
+                name="working-memory-evidence",
+                description="Working memory extraction evidence.",
+                content="Treat working memory as an extraction evidence source.",
+            )
+        ],
+    )
+    extractor = RecordingExtractor(artifact)
+    runtime = MemoryRuntime(config=MemoryConfig(root_dir=str(tmp_path / ".memora")), extractor=extractor)
+    runtime.init_storage()
+    messages = [SessionMessage(role="assistant", content="Prepared extraction improvement.")]
+
+    returned_artifact, results = runtime.extract_and_remember(messages, working_memory=state)
+
+    assert returned_artifact is artifact
+    assert extractor.working_memory is state
+    assert [result.action for result in results] == ["created"]
+
 
 
 def test_extract_and_remember_uses_injected_llm_extractor(tmp_path: Path):
