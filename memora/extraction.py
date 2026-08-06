@@ -283,8 +283,12 @@ class LLMMemoryExtractor:
     def __init__(self, client: LLMClient):
         self.client = client
 
-    def extract(self, messages: Sequence[SessionMessage | Mapping[str, str]]) -> ExtractionArtifact:
-        raw_text = self.client.complete(extraction_prompt_messages(messages))
+    def extract(
+        self,
+        messages: Sequence[SessionMessage | Mapping[str, str]],
+        working_memory: WorkingMemoryState | Mapping[str, object] | None = None,
+    ) -> ExtractionArtifact:
+        raw_text = self.client.complete(extraction_prompt_messages(messages, working_memory=working_memory))
         return parse_extraction_json(raw_text)
 
 

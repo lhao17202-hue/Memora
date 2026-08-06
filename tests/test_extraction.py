@@ -270,6 +270,39 @@ def test_extraction_prompt_messages_omit_working_memory_when_not_provided():
 
 
 
+def test_llm_memory_extractor_accepts_working_memory():
+    client = FakeLLMClient(
+        json.dumps(
+            {
+                "should_remember": True,
+                "memories": [
+                    {
+                        "type": "reflective",
+                        "name": "working-memory-source-boundary",
+                        "description": "Working memory extraction source boundary.",
+                        "content": "Treat working memory as extraction evidence, not direct long-term memory.",
+                    }
+                ],
+            }
+        )
+    )
+    state = WorkingMemoryState(process_notes=["Working memory should be evidence, not direct long-term memory."])
+
+    artifact = LLMMemoryExtractor(client).extract(
+        [SessionMessage(role="assistant", content="Updated the extraction design.")],
+        working_memory=state,
+    )
+
+    assert artifact.ok is True
+    assert artifact.memories[0].type == "reflective"
+    assert client.messages[0]["role"] == "system"
+    assert client.messages[1] == {"role": "assistant", "content": "Updated the extraction design."}
+    assert client.messages[2]["role"] == "user"
+    assert "<working_memory_snapshot>" in client.messages[2]["content"]
+    assert "Working memory should be evidence" in client.messages[2]["content"]
+
+
+
 def test_extraction_prompt_messages_accept_mapping_messages():
     messages = extraction_prompt_messages([{"role": "assistant", "content": "Done."}])
 
