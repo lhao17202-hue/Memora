@@ -27,10 +27,10 @@ messages as stronger evidence than working_memory_snapshot.
 
 Use working_memory_snapshot conservatively. It is evidence for durable
 conclusions, reusable lessons, tool-use lessons, and important decisions; it is
-not itself long-term memory. Do not directly memorize current_goal, next_step, open_questions, or recent_files
+not itself long-term memory. Do not directly memorize task, trace, or recent_files
 unless they capture a durable project direction or important decision. Never
-memorize raw logs, raw stdout/stderr, stack traces, or transient task progress
-from working_memory_snapshot.
+memorize raw tool logs, raw MCP or skill traces, raw stdout/stderr, stack traces,
+or transient task progress from working_memory_snapshot.
 
 Use only these memory types:
 - preference: explicit stable user preference, user identity, answer style, or personal constraint.
@@ -50,6 +50,12 @@ Type routing guidance:
 - Prefer knowledge for stable imported references, not speculation.
 - Use general sparingly.
 
+Retrieval field guidance:
+- type controls policy, default weight, pinning, and type-filtered retrieval. Choose the narrowest valid type from the allowed memory types; do not invent new types.
+- name is a stable canonical key for deduplication and human review. Use 2-5 lowercase kebab-case words, prefer durable concepts over event details, and reuse common names when the same concept recurs.
+- description is a search-facing summary. Write one concise sentence that says what the memory is about using likely future search terms.
+- tags are exact-match retrieval facets. Use 1-5 lowercase kebab-case tags, avoid synonyms for the same idea, and omit tags if none are useful. Prefer canonical tags from this vocabulary when applicable: response-style, language, project-convention, architecture, testing, test-command, tool-failure, debugging, workflow, dependency, api, database, security, performance, docs, file-context, decision, lesson, summary.
+
 Remember only durable information. Do not remember secrets, raw credentials,
 full transcripts, raw stdout/stderr, stack traces, temporary task progress,
 speculation, or one-turn plans. Current task state belongs to short-term memory.
@@ -59,6 +65,60 @@ auditable, and evidence-backed. Prefer fewer high-quality memories over many
 small fragments. Set requires_confirmation=true for low confidence, sensitive
 user preferences, or uncertain facts. Set confidence below 0.5 when the memory
 is plausible but weakly supported.
+
+Output JSON schema:
+Return exactly one top-level JSON object with this shape:
+{
+  "should_remember": boolean,
+  "memories": [
+    {
+      "type": "preference" | "project" | "episodic" | "reflective" | "tool" | "knowledge" | "general",
+      "name": "short-kebab-case-name",
+      "description": "One concise sentence explaining the candidate.",
+      "content": "Durable memory content to validate and save.",
+      "tags": ["optional", "short", "strings"],
+      "confidence": 0.0,
+      "weight": 1,
+      "requires_confirmation": false,
+      "reason": "Brief evidence-based extraction rationale."
+    }
+  ]
+}
+
+Example when a durable preference and tool lesson should be remembered:
+{
+  "should_remember": true,
+  "memories": [
+    {
+      "type": "preference",
+      "name": "response-style",
+      "description": "User prefers concise responses.",
+      "content": "The user prefers concise answers with short summaries.",
+      "tags": ["style"],
+      "confidence": 0.92,
+      "weight": 8,
+      "requires_confirmation": false,
+      "reason": "The user explicitly asked for concise answers."
+    },
+    {
+      "type": "tool",
+      "name": "pytest-verification-command",
+      "description": "Reusable pytest verification command.",
+      "content": "Use pytest -q to run the Memora test suite after Python code changes.",
+      "tags": ["pytest", "verification"],
+      "confidence": 0.86,
+      "weight": 6,
+      "requires_confirmation": false,
+      "reason": "The command was used successfully as a reusable verification step."
+    }
+  ]
+}
+
+Example when nothing durable should be remembered:
+{
+  "should_remember": false,
+  "memories": []
+}
 
 If nothing should be remembered, return {"should_remember": false, "memories": []}.
 If something should be remembered, return {"should_remember": true, "memories": [...]}.
@@ -216,28 +276,24 @@ def parse_extraction_json(raw_text: str, source: str = "llm") -> ExtractionArtif
 def _format_working_memory_snapshot(working_memory: WorkingMemoryState | Mapping[str, object]) -> str:
     if isinstance(working_memory, WorkingMemoryState):
         data: Mapping[str, object] = {
-            "task_summary": working_memory.task_summary,
-            "current_goal": working_memory.current_goal,
-            "open_questions": working_memory.open_questions,
+            "task": working_memory.task,
+            "tool_notes": working_memory.tool_notes,
             "recent_files": working_memory.recent_files,
             "file_summaries": working_memory.file_summaries,
-            "process_notes": working_memory.process_notes,
-            "tool_failures": working_memory.tool_failures,
-            "next_step": working_memory.next_step,
+            "notes": working_memory.notes,
+            "trace": working_memory.trace,
         }
     else:
         data = working_memory
 
     lines = ["<working_memory_snapshot>"]
     for field_name in (
-        "task_summary",
-        "current_goal",
-        "open_questions",
+        "task",
+        "tool_notes",
         "recent_files",
         "file_summaries",
-        "process_notes",
-        "tool_failures",
-        "next_step",
+        "notes",
+        "trace",
     ):
         value = data.get(field_name)
         if value in (None, "", [], {}):

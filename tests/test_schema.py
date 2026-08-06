@@ -56,9 +56,12 @@ def test_memory_query_defaults():
 def test_working_memory_defaults():
     state = WorkingMemoryState()
 
-    assert state.task_summary == ""
-    assert state.open_questions == []
+    assert state.task == ""
+    assert state.tool_notes == []
+    assert state.recent_files == []
     assert state.file_summaries == {}
+    assert state.notes == []
+    assert state.trace == ""
 
 
 def test_session_message_accepts_metadata():

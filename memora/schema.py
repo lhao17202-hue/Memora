@@ -146,14 +146,12 @@ class SessionMessage:
 
 @dataclass
 class WorkingMemoryState:
-    task_summary: str = ""
-    current_goal: str = ""
-    open_questions: list[str] = field(default_factory=list)
+    task: str = ""
+    tool_notes: list[str] = field(default_factory=list)
     recent_files: list[str] = field(default_factory=list)
     file_summaries: dict[str, str] = field(default_factory=dict)
-    process_notes: list[str] = field(default_factory=list)
-    tool_failures: list[str] = field(default_factory=list)
-    next_step: str = ""
+    notes: list[str] = field(default_factory=list)
+    trace: str = ""
 
 
 def _require_non_empty_string(value: str, field_name: str) -> None:

@@ -220,11 +220,34 @@ def test_extraction_prompt_describes_memora_memory_boundary():
 
 
 
+def test_extraction_prompt_includes_json_output_schema_and_example():
+    assert "Output JSON schema" in EXTRACTION_SYSTEM_PROMPT
+    assert '"should_remember": true' in EXTRACTION_SYSTEM_PROMPT
+    assert '"memories": [' in EXTRACTION_SYSTEM_PROMPT
+    assert '"type": "preference"' in EXTRACTION_SYSTEM_PROMPT
+    assert '"name": "response-style"' in EXTRACTION_SYSTEM_PROMPT
+    assert '"requires_confirmation": false' in EXTRACTION_SYSTEM_PROMPT
+    assert "Return exactly one top-level JSON object" in EXTRACTION_SYSTEM_PROMPT
+
+
+
+def test_extraction_prompt_guides_retrieval_fields():
+    assert "Retrieval field guidance" in EXTRACTION_SYSTEM_PROMPT
+    assert "type controls policy, default weight, pinning, and type-filtered retrieval" in EXTRACTION_SYSTEM_PROMPT
+    assert "name is a stable canonical key" in EXTRACTION_SYSTEM_PROMPT
+    assert "description is a search-facing summary" in EXTRACTION_SYSTEM_PROMPT
+    assert "tags are exact-match retrieval facets" in EXTRACTION_SYSTEM_PROMPT
+    assert "Prefer canonical tags from this vocabulary" in EXTRACTION_SYSTEM_PROMPT
+    assert "response-style" in EXTRACTION_SYSTEM_PROMPT
+    assert "test-command" in EXTRACTION_SYSTEM_PROMPT
+
+
+
 def test_extraction_prompt_describes_working_memory_source_rules():
     assert "conversation_messages" in EXTRACTION_SYSTEM_PROMPT
     assert "working_memory_snapshot" in EXTRACTION_SYSTEM_PROMPT
     assert "agent-maintained short-term state" in EXTRACTION_SYSTEM_PROMPT
-    assert "Do not directly memorize current_goal, next_step, open_questions, or recent_files" in EXTRACTION_SYSTEM_PROMPT
+    assert "Do not directly memorize task, trace, or recent_files" in EXTRACTION_SYSTEM_PROMPT
     assert "preference: explicit stable user preference" in EXTRACTION_SYSTEM_PROMPT
     assert "general: fallback only" in EXTRACTION_SYSTEM_PROMPT
 
@@ -232,14 +255,12 @@ def test_extraction_prompt_describes_working_memory_source_rules():
 
 def test_extraction_prompt_messages_include_working_memory_snapshot():
     state = WorkingMemoryState(
-        task_summary="Reviewed Memora extraction design.",
-        current_goal="Add working memory as extraction evidence.",
-        open_questions=["Should runtime auto-load sessions?"],
+        task="Add working memory as extraction evidence.",
+        tool_notes=["pytest tests/test_extraction.py verifies extraction prompt behavior."],
         recent_files=["memora/extraction.py"],
         file_summaries={"memora/extraction.py": "Defines extraction prompt and parser."},
-        process_notes=["Working memory should be evidence, not direct long-term memory."],
-        tool_failures=["A raw pytest traceback should not be memorized."],
-        next_step="Update extraction tests.",
+        notes=["Working memory should be evidence, not direct long-term memory."],
+        trace="User requested extraction prompt support, agent implemented tests and runtime forwarding.",
     )
 
     messages = extraction_prompt_messages(
@@ -251,12 +272,15 @@ def test_extraction_prompt_messages_include_working_memory_snapshot():
     assert messages[1] == {"role": "user", "content": "Use working memory for extraction too."}
     assert messages[2]["role"] == "user"
     assert "<working_memory_snapshot>" in messages[2]["content"]
-    assert "task_summary: Reviewed Memora extraction design." in messages[2]["content"]
-    assert "current_goal: Add working memory as extraction evidence." in messages[2]["content"]
-    assert "open_questions:" in messages[2]["content"]
-    assert "- Should runtime auto-load sessions?" in messages[2]["content"]
+    assert "task: Add working memory as extraction evidence." in messages[2]["content"]
+    assert "tool_notes:" in messages[2]["content"]
+    assert "- pytest tests/test_extraction.py verifies extraction prompt behavior." in messages[2]["content"]
+    assert "recent_files:" in messages[2]["content"]
+    assert "- memora/extraction.py" in messages[2]["content"]
     assert "file_summaries:" in messages[2]["content"]
     assert "memora/extraction.py: Defines extraction prompt and parser." in messages[2]["content"]
+    assert "notes:" in messages[2]["content"]
+    assert "trace: User requested extraction prompt support" in messages[2]["content"]
     assert "</working_memory_snapshot>" in messages[2]["content"]
 
 
@@ -286,7 +310,7 @@ def test_llm_memory_extractor_accepts_working_memory():
             }
         )
     )
-    state = WorkingMemoryState(process_notes=["Working memory should be evidence, not direct long-term memory."])
+    state = WorkingMemoryState(notes=["Working memory should be evidence, not direct long-term memory."])
 
     artifact = LLMMemoryExtractor(client).extract(
         [SessionMessage(role="assistant", content="Updated the extraction design.")],

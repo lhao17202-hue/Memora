@@ -318,7 +318,7 @@ def test_extract_memories_without_configured_extractor_does_not_write(tmp_path: 
 
 
 def test_extract_memories_forwards_working_memory_to_extractor(tmp_path):
-    state = WorkingMemoryState(process_notes=["Use working memory as extraction evidence."])
+    state = WorkingMemoryState(notes=["Use working memory as extraction evidence."])
     artifact = ExtractionArtifact(should_remember=False, memories=[])
     extractor = RecordingExtractor(artifact)
     runtime = MemoryRuntime(config=MemoryConfig(root_dir=str(tmp_path / ".memora")), extractor=extractor)
@@ -333,7 +333,7 @@ def test_extract_memories_forwards_working_memory_to_extractor(tmp_path):
 
 
 def test_extract_and_remember_forwards_working_memory(tmp_path):
-    state = WorkingMemoryState(process_notes=["Working memory can produce reflective memories."])
+    state = WorkingMemoryState(notes=["Working memory can produce reflective memories."])
     artifact = ExtractionArtifact(
         should_remember=True,
         memories=[

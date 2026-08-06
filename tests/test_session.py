@@ -16,7 +16,7 @@ def test_create_session_has_working_memory(tmp_path: Path):
     session = service.create_session(user_id="default", session_id="session_1")
 
     assert session["id"] == "session_1"
-    assert session["working_memory"]["task_summary"] == ""
+    assert session["working_memory"]["task"] == ""
     assert session["history"] == []
 
 
@@ -49,10 +49,11 @@ def test_session_service_auto_creates_same_session_id_per_user_without_collision
 def test_update_and_get_working_memory(tmp_path: Path):
     service = make_service(tmp_path)
     service.create_session(session_id="session_1")
-    state = WorkingMemoryState(task_summary="Design memory system", recent_files=["README.md"])
+    state = WorkingMemoryState(task="Design memory system", recent_files=["README.md"], notes=["Keep working memory compact."])
 
     service.update_working_memory("default", "session_1", state)
     loaded = service.get_working_memory("default", "session_1")
 
-    assert loaded.task_summary == "Design memory system"
+    assert loaded.task == "Design memory system"
     assert loaded.recent_files == ["README.md"]
+    assert loaded.notes == ["Keep working memory compact."]
