@@ -6,7 +6,7 @@ from memora.extraction import (
     extraction_prompt_messages,
     parse_extraction_json,
 )
-from memora.schema import SessionMessage
+from memora.schema import SessionMessage, WorkingMemoryState
 
 
 class FakeLLMClient:
@@ -215,8 +215,59 @@ def test_extraction_prompt_describes_memora_memory_boundary():
     assert "session or task end" in EXTRACTION_SYSTEM_PROMPT
     assert "MemoryCandidate" in EXTRACTION_SYSTEM_PROMPT
     assert "not final MemoryItem" in EXTRACTION_SYSTEM_PROMPT
-    assert "tool: durable tool-use lessons summarized from traces" in EXTRACTION_SYSTEM_PROMPT
+    assert "tool: durable tool-use lesson summarized from traces" in EXTRACTION_SYSTEM_PROMPT
     assert "Current task state belongs to short-term memory" in EXTRACTION_SYSTEM_PROMPT
+
+
+
+def test_extraction_prompt_describes_working_memory_source_rules():
+    assert "conversation_messages" in EXTRACTION_SYSTEM_PROMPT
+    assert "working_memory_snapshot" in EXTRACTION_SYSTEM_PROMPT
+    assert "agent-maintained short-term state" in EXTRACTION_SYSTEM_PROMPT
+    assert "Do not directly memorize current_goal, next_step, open_questions, or recent_files" in EXTRACTION_SYSTEM_PROMPT
+    assert "preference: explicit stable user preference" in EXTRACTION_SYSTEM_PROMPT
+    assert "general: fallback only" in EXTRACTION_SYSTEM_PROMPT
+
+
+
+def test_extraction_prompt_messages_include_working_memory_snapshot():
+    state = WorkingMemoryState(
+        task_summary="Reviewed Memora extraction design.",
+        current_goal="Add working memory as extraction evidence.",
+        open_questions=["Should runtime auto-load sessions?"],
+        recent_files=["memora/extraction.py"],
+        file_summaries={"memora/extraction.py": "Defines extraction prompt and parser."},
+        process_notes=["Working memory should be evidence, not direct long-term memory."],
+        tool_failures=["A raw pytest traceback should not be memorized."],
+        next_step="Update extraction tests.",
+    )
+
+    messages = extraction_prompt_messages(
+        [SessionMessage(role="user", content="Use working memory for extraction too.")],
+        working_memory=state,
+    )
+
+    assert messages[0]["role"] == "system"
+    assert messages[1] == {"role": "user", "content": "Use working memory for extraction too."}
+    assert messages[2]["role"] == "user"
+    assert "<working_memory_snapshot>" in messages[2]["content"]
+    assert "task_summary: Reviewed Memora extraction design." in messages[2]["content"]
+    assert "current_goal: Add working memory as extraction evidence." in messages[2]["content"]
+    assert "open_questions:" in messages[2]["content"]
+    assert "- Should runtime auto-load sessions?" in messages[2]["content"]
+    assert "file_summaries:" in messages[2]["content"]
+    assert "memora/extraction.py: Defines extraction prompt and parser." in messages[2]["content"]
+    assert "</working_memory_snapshot>" in messages[2]["content"]
+
+
+
+def test_extraction_prompt_messages_omit_working_memory_when_not_provided():
+    messages = extraction_prompt_messages([SessionMessage(role="user", content="Remember this preference.")])
+
+    assert len(messages) == 2
+    assert messages[0]["role"] == "system"
+    assert messages[1] == {"role": "user", "content": "Remember this preference."}
+
 
 
 def test_extraction_prompt_messages_accept_mapping_messages():

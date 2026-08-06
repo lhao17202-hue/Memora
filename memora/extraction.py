@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Mapping, Protocol, Sequence
 
-from .schema import MemoryCandidate, SessionMessage, validate_memory_candidate, validate_memory_type
+from .schema import MemoryCandidate, SessionMessage, WorkingMemoryState, validate_memory_candidate, validate_memory_type
 
 LOW_CONFIDENCE_THRESHOLD = 0.5
 
@@ -17,14 +17,38 @@ Memora stores MemoryCandidate objects first, not final MemoryItem records. The
 runtime will validate candidates, apply safety policy, resolve relations, ask
 for confirmation when needed, and then write to the local backend.
 
+The input may contain two evidence sections:
+- conversation_messages: direct user/assistant interaction evidence.
+- working_memory_snapshot: agent-maintained short-term state and summaries.
+
+Use conversation_messages to extract explicit user preferences, durable project
+facts, important decisions, and intentionally imported knowledge. Treat these
+messages as stronger evidence than working_memory_snapshot.
+
+Use working_memory_snapshot conservatively. It is evidence for durable
+conclusions, reusable lessons, tool-use lessons, and important decisions; it is
+not itself long-term memory. Do not directly memorize current_goal, next_step, open_questions, or recent_files
+unless they capture a durable project direction or important decision. Never
+memorize raw logs, raw stdout/stderr, stack traces, or transient task progress
+from working_memory_snapshot.
+
 Use only these memory types:
-- preference: user identity, stable preferences, answer style, personal constraints.
-- project: durable project requirements, tech stack, architecture, repo conventions.
-- episodic: important dated interaction events or decisions worth recalling later.
-- reflective: reusable lessons from successes, failures, reviews, or debugging.
-- tool: durable tool-use lessons summarized from traces, not raw tool logs.
+- preference: explicit stable user preference, user identity, answer style, or personal constraint.
+- project: durable project requirement, tech stack, architecture, repo convention, or business rule.
+- episodic: important dated interaction event or decision worth recalling later.
+- reflective: reusable lesson from successes, failures, reviews, implementation, or debugging.
+- tool: durable tool-use lesson summarized from traces, not raw tool logs.
 - knowledge: stable external/reference knowledge that was intentionally imported.
-- general: durable memory that is useful but does not fit the other types.
+- general: fallback only for durable memory that is useful but does not fit the other types.
+
+Type routing guidance:
+- Prefer preference only when the user expresses a stable preference or constraint.
+- Prefer project for durable repo facts, architecture boundaries, conventions, and accepted design decisions.
+- Prefer episodic for dated session decisions or milestones, not ordinary progress updates.
+- Prefer reflective for reusable lessons about how to work or debug better next time.
+- Prefer tool for commands, tool behavior, verification lessons, or tool-failure lessons after summarization.
+- Prefer knowledge for stable imported references, not speculation.
+- Use general sparingly.
 
 Remember only durable information. Do not remember secrets, raw credentials,
 full transcripts, raw stdout/stderr, stack traces, temporary task progress,
@@ -48,8 +72,12 @@ class LLMClient(Protocol):
 
 
 class MemoryExtractor(Protocol):
-    def extract(self, messages: Sequence[SessionMessage | Mapping[str, str]]) -> "ExtractionArtifact":
-        """Extract candidate memories from conversation messages."""
+    def extract(
+        self,
+        messages: Sequence[SessionMessage | Mapping[str, str]],
+        working_memory: WorkingMemoryState | Mapping[str, object] | None = None,
+    ) -> "ExtractionArtifact":
+        """Extract candidate memories from conversation messages and optional working memory."""
 
 
 @dataclass
@@ -185,7 +213,58 @@ def parse_extraction_json(raw_text: str, source: str = "llm") -> ExtractionArtif
     )
 
 
-def extraction_prompt_messages(messages: Sequence[SessionMessage | Mapping[str, str]]) -> list[dict[str, str]]:
+def _format_working_memory_snapshot(working_memory: WorkingMemoryState | Mapping[str, object]) -> str:
+    if isinstance(working_memory, WorkingMemoryState):
+        data: Mapping[str, object] = {
+            "task_summary": working_memory.task_summary,
+            "current_goal": working_memory.current_goal,
+            "open_questions": working_memory.open_questions,
+            "recent_files": working_memory.recent_files,
+            "file_summaries": working_memory.file_summaries,
+            "process_notes": working_memory.process_notes,
+            "tool_failures": working_memory.tool_failures,
+            "next_step": working_memory.next_step,
+        }
+    else:
+        data = working_memory
+
+    lines = ["<working_memory_snapshot>"]
+    for field_name in (
+        "task_summary",
+        "current_goal",
+        "open_questions",
+        "recent_files",
+        "file_summaries",
+        "process_notes",
+        "tool_failures",
+        "next_step",
+    ):
+        value = data.get(field_name)
+        if value in (None, "", [], {}):
+            continue
+        lines.extend(_format_snapshot_field(field_name, value))
+    lines.append("</working_memory_snapshot>")
+    return "\n".join(lines)
+
+
+
+def _format_snapshot_field(field_name: str, value: object) -> list[str]:
+    if isinstance(value, list):
+        lines = [f"{field_name}:"]
+        lines.extend(f"- {item}" for item in value if str(item).strip())
+        return lines
+    if isinstance(value, dict):
+        lines = [f"{field_name}:"]
+        lines.extend(f"- {key}: {item}" for key, item in value.items() if str(item).strip())
+        return lines
+    return [f"{field_name}: {value}"]
+
+
+
+def extraction_prompt_messages(
+    messages: Sequence[SessionMessage | Mapping[str, str]],
+    working_memory: WorkingMemoryState | Mapping[str, object] | None = None,
+) -> list[dict[str, str]]:
     normalized = [{"role": "system", "content": EXTRACTION_SYSTEM_PROMPT}]
     for message in messages:
         if isinstance(message, SessionMessage):
@@ -195,6 +274,8 @@ def extraction_prompt_messages(messages: Sequence[SessionMessage | Mapping[str, 
             role = str(message.get("role") or "user")
             content = str(message.get("content") or "")
         normalized.append({"role": role, "content": content})
+    if working_memory is not None:
+        normalized.append({"role": "user", "content": _format_working_memory_snapshot(working_memory)})
     return normalized
 
 
