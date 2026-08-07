@@ -1,0 +1,36 @@
+{
+  "task": "对齐 WorkingMemory 快照结构与提取 Prompt，完成会话结束时的长期记忆提取链路联调",
+  "tool_notes": [
+    "1. pytest 单测：SQLite :memory: 数据库默认 function 级 fixture，每条用例重建导致数据丢失，改为 session 级连接后复用正常",
+    "2. MCP 文件写入工具：传入相对路径 ./output/memories.json 触发 FileNotFoundError，使用 /workspace/output/memories.json 绝对路径执行成功",
+    "3. MCP 文件写入工具：文件名包含「测试数据」中文时，写入后文件名为乱码，改为英文文件名恢复正常",
+    "4. SQLite 向量 upsert 工具：批量插入 200 条向量时出现事务锁超时，拆分为每 50 条一次提交后稳定运行",
+    "5. embedding 调用工具：传入超长文本触发 token 超限，按 500 字分段编码后拼接向量解决"
+  ],
+  "recent_files": [
+    "/workspace/app/schema.py",
+    "/workspace/app/extraction.py",
+    "/workspace/app/stores/sqlite_store.py",
+    "/workspace/app/config.py",
+    "/workspace/app/api/memory_api.py",
+    "/workspace/tests/test_import.py",
+    "/workspace/.env.example"
+  ],
+  "file_summaries": {
+    "/workspace/app/schema.py": "定义 MemoryItem、MemoryCandidate、WorkingMemoryState 等核心数据类，全量类型注解，包含字段校验函数",
+    "/workspace/app/extraction.py": "实现 LLMMemoryExtractor，接收对话+工作记忆快照，解析 JSON 输出记忆候选列表，含异常兜底逻辑",
+    "/workspace/app/stores/sqlite_store.py": "SQLite 存储实现，支持记忆增删改查、FTS 全文检索、向量表存储，事务粒度可控",
+    "/workspace/app/config.py": "项目配置类，从环境变量加载所有参数，包含向量维度、检索模式、阈值等配置项，无硬编码",
+    "/workspace/app/api/memory_api.py": "FastAPI 记忆接口层，包含批量导入、搜索、归档接口，统一返回 code/message/data 结构",
+    "/workspace/tests/test_import.py": "批量导入接口单测，覆盖正常导入、部分失败、格式错误三种场景，使用内存数据库",
+    "/workspace/.env.example": "环境变量示例文件，列明所有可配置项与默认值，不含真实密钥"
+  },
+  "notes": [
+    "长期记忆提取禁止直接保存原始 trace、stdout、堆栈信息，只能提炼为可复用经验",
+    "对话消息的证据优先级高于工作记忆快照，冲突时以对话明确表述为准",
+    "置信度低于 0.5 的记忆候选必须标记 requires_confirmation，等待人工确认",
+    "preference、project 类型记忆默认置顶加载，其余类型按需检索召回",
+    "每次会话结束生成一条会话总结，追加到总结链路，类型为 episodic"
+  ],
+  "trace": "[2026-08-06 10:02:15] 会话启动 session_id=sess_20260806_1002_ab3f user_id=dev_internal\n[2026-08-06 10:02:41] 调用 tool: mcp.filesystem.read path=\"./app/schema.py\" → error: FileNotFoundError\n[2026-08-06 10:03:05] 调用 tool: mcp.filesystem.read path=\"/workspace/app/schema.py\" → success: 128 lines\n[2026-08-06 10:05:22] 调用 tool: mcp.filesystem.write path=\"/workspace/output/测试数据.json\" content=\"...\" → success: 文件名乱码\n[2026-08-06 10:06:10] 调用 tool: mcp.filesystem.write path=\"/workspace/output/test_data.json\" content=\"...\" → success: 正常\n[2026-08-06 10:08:47] 调用 tool: sqlite.batch_upsert count=200 → error: database is locked\n[2026-08-06 10:09:33] 调用 tool: sqlite.batch_upsert count=50 batch=4 → success: 200 rows\n[2026-08-06 10:12:05] 调用 tool: pytest.run target=\"tests/test_import.py\" → error: table memories does not exist\n[2026-08-06 10:15:41] 调用 tool: pytest.run target=\"tests/test_import.py\" → success: 3 passed 0 failed\n[2026-08-06 10:18:20] 执行 extractor.extract 预校验：输入 12 条对话 + 工作快照，输出候选记忆 7 条\n[2026-08-06 10:20:00] 会话待结束，准备触发长期记忆写入流程"
+}

@@ -12,6 +12,7 @@ dist/
 .venv/
 venv/
 .env
+.memora-user-cli.env
 .coverage
 htmlcov/
 .ruff_cache/
@@ -21,5 +22,6 @@ htmlcov/
 .memora/
 .memora-demo/
 .memora-openai-demo/
+.memora-user-cli/
 
 .claude/

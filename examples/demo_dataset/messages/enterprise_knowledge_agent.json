@@ -1,0 +1,74 @@
+[
+  {
+    "role": "user",
+    "content": "以后所有代码输出都加上中文逐行注释，回答只保留核心逻辑，不要冗余的铺垫和收尾话术。"
+  },
+  {
+    "role": "assistant",
+    "content": "已收到，后续代码输出统一附带中文逐行注释，回答精简聚焦核心逻辑。"
+  },
+  {
+    "role": "user",
+    "content": "当前项目是企业内部知识库 Agent，技术栈固定为 Python 3.11 + SQLite + FastAPI，禁止引入 Postgres、Qdrant 等外部存储，所有向量能力走本地 hash embedding。代码规范：函数必须加类型注解，异常统一使用自定义错误类，所有配置从环境变量读取，禁止硬编码密钥。"
+  },
+  {
+    "role": "assistant",
+    "content": "已记录项目技术栈与开发规范，后续代码严格遵循该约束。"
+  },
+  {
+    "role": "user",
+    "content": "帮我写一个批量导入记忆的接口，接收 JSON 数组，逐条校验后写入 SQLite，失败的条目单独返回错误信息，不能整体回滚。"
+  },
+  {
+    "role": "assistant",
+    "content": "接口设计思路：接收 List[MemoryItem]，循环单条校验+写入，收集异常条目，最终返回成功/失败统计。"
+  },
+  {
+    "role": "user",
+    "content": "刚才调 pytest 跑单测的时候，SQLite 内存数据库每次都会清空，查了半天是 fixture 作用域写错了，改成 session 级就好了，这个坑记一下。"
+  },
+  {
+    "role": "assistant",
+    "content": "调试经验：SQLite 内存数据库跨用例丢失数据，优先检查 fixture 作用域，使用 session 级可复用连接。"
+  },
+  {
+    "role": "user",
+    "content": "导入一份标准规范：REST API 统一响应格式必须包含 code、message、data 三个字段，成功 code 为 0，失败为非 0 数值。"
+  },
+  {
+    "role": "assistant",
+    "content": "已记录外部规范知识，后续接口输出遵循该统一响应结构。"
+  },
+  {
+    "role": "user",
+    "content": "今天开会定了：长期记忆的提取逻辑只在会话结束时触发，中途不做增量提取，这个方案后续不再变更。"
+  },
+  {
+    "role": "assistant",
+    "content": "已记录项目决策：记忆提取仅在会话结束时执行，不做会话内增量提取。"
+  },
+  {
+    "role": "user",
+    "content": "刚才调用 MCP 的文件写入工具，第一次传相对路径失败了，换成工作区绝对路径就成功了，还有文件名不能带中文，否则会乱码。"
+  },
+  {
+    "role": "assistant",
+    "content": "工具使用经验：MCP 文件写入工具需传入工作区绝对路径，文件名避免使用中文防止编码异常。"
+  },
+  {
+    "role": "user",
+    "content": "现在的任务：把 WorkingMemory 里的字段对齐到提取 prompt 的快照格式，确保 trace 和原始日志不会被直接存进长期记忆。"
+  },
+  {
+    "role": "assistant",
+    "content": "当前任务目标：对齐工作记忆快照字段，过滤原始日志与临时状态，仅输出可用于提取的结构化内容。"
+  },
+  {
+    "role": "user",
+    "content": "对了，以后所有数据库操作都必须走事务，单条失败不影响其他条目，这个是硬性要求。"
+  },
+  {
+    "role": "assistant",
+    "content": "已记录：数据库批量操作强制使用事务，保证单条失败不污染整体流程。"
+  }
+]
