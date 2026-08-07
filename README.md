@@ -189,6 +189,95 @@ vector_ok=True missing=0 orphans=0 mismatches=0 sync_errors=0
 
 `rebuild-index` rebuilds both the normal memory index and the RAG vector index when `--rag` is enabled. JSON `import` also syncs imported active memories into the vector index.
 
+To run an interactive real LLM + BGE + Qdrant + SQLite demo, keep secrets in environment variables or a git-ignored `.env` file. The demo supports three operations: `extract`, `query`, and `list`.
+
+Required services/configuration:
+
+- OpenAI-compatible chat endpoint via `OPENAI_API_KEY`, optional `OPENAI_BASE_URL`, and optional `OPENAI_MODEL`.
+- Local BGE-M3 model configured with `MEMORA_EMBEDDING_MODEL_PATH`.
+- Running Qdrant configured with `MEMORA_VECTOR_STORE_URL`.
+- SQLite memory backend via `MEMORA_BACKEND=sqlite`.
+
+PowerShell setup example:
+
+```powershell
+$env:OPENAI_BASE_URL = "https://your-openai-compatible-host/v1"
+$env:OPENAI_API_KEY = "your-key"
+$env:OPENAI_MODEL = "gpt-5.5"
+$env:MEMORA_ROOT = ".memora-openai-demo"
+$env:MEMORA_BACKEND = "sqlite"
+$env:MEMORA_RAG = "true"
+$env:MEMORA_EMBEDDING_PROVIDER = "bge"
+$env:MEMORA_EMBEDDING_MODEL = "bge-m3"
+$env:MEMORA_EMBEDDING_MODEL_PATH = "C:\Download\bge-m3"
+$env:MEMORA_EMBEDDING_DIMENSION = "1024"
+$env:MEMORA_EMBEDDING_SPARSE = "true"
+$env:MEMORA_RETRIEVAL_MODE = "hybrid"
+$env:MEMORA_VECTOR_STORE = "qdrant"
+$env:MEMORA_VECTOR_STORE_URL = "http://localhost:6333"
+$env:MEMORA_VECTOR_STORE_COLLECTION = "memora_openai_demo"
+$env:MEMORA_SEMANTIC_WRITE_RELATIONS = "true"
+```
+
+Prepare input files:
+
+```json
+// messages.json
+[
+  {"role": "user", "content": "请记住我希望中文回答，并先给简短总结。"},
+  {"role": "assistant", "content": "好的，我会用中文回答，并先给简短总结。"}
+]
+```
+
+```json
+// working_memory.json
+{
+  "task": "记录用户回答风格偏好",
+  "tool_notes": ["用户明确提出稳定偏好。"],
+  "recent_files": [],
+  "file_summaries": {},
+  "notes": ["这是一条长期偏好记忆。"],
+  "trace": "本轮对话建立了用户希望中文回答并先给总结的偏好。"
+}
+```
+
+Run the full extraction/write flow:
+
+```powershell
+python examples/openai_memory_demo.py extract --messages messages.json --working-memory working_memory.json
+```
+
+Query retrieved memory content:
+
+```powershell
+python examples/openai_memory_demo.py query "我应该怎么回答用户？"
+```
+
+List all current memories:
+
+```powershell
+python examples/openai_memory_demo.py list
+```
+
+To run the optional real hosted-LLM memory lifecycle end-to-end test, install the OpenAI SDK, set an API key, and opt in explicitly. The test asks the LLM to extract a durable memory, writes it through Memora, checks `list_memories()`, and retrieves it back through task-context retrieval:
+
+```bash
+pip install openai
+RUN_MEMORA_LLM_E2E=1 \
+OPENAI_API_KEY=your-key \
+OPENAI_MODEL=gpt-4o-mini \
+python -m pytest tests/e2e/test_openai_memory_lifecycle_e2e.py -q -s
+```
+
+On PowerShell:
+
+```powershell
+$env:RUN_MEMORA_LLM_E2E = "1"
+$env:OPENAI_API_KEY = "your-key"
+$env:OPENAI_MODEL = "gpt-4o-mini"
+python -m pytest tests/e2e/test_openai_memory_lifecycle_e2e.py -q -s
+```
+
 To run the optional real BGE-M3 + Qdrant end-to-end test, start Qdrant, make sure the local BGE-M3 model exists, then run:
 
 ```bash

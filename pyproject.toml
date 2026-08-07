@@ -31,4 +31,5 @@ testpaths = ["tests"]
 pythonpath = ["."]
 markers = [
   "e2e: tests that require real local external services such as BGE-M3 and Qdrant",
+  "llm_e2e: tests that require a real hosted LLM API key",
 ]

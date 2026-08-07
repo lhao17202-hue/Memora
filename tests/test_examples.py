@@ -44,6 +44,34 @@ def test_openai_memory_system_example_requires_api_key(monkeypatch):
     assert "Set OPENAI_API_KEY before running this example." in result.stderr
 
 
+
+def test_openai_memory_demo_requires_api_key(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+
+    result = subprocess.run(
+        [sys.executable, "examples/openai_memory_demo.py", "list"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "Set OPENAI_API_KEY before running this demo." in result.stderr
+
+
+
+def test_openai_memory_demo_does_not_hardcode_api_key():
+    from pathlib import Path
+
+    source = Path("examples/openai_memory_demo.py").read_text(encoding="utf-8")
+
+    assert "sk-" not in source
+    assert "OPENAI_API_KEY" in source
+    assert "OPENAI_BASE_URL" in source
+    assert "OPENAI_MODEL" in source
+
+
 def test_openai_relation_schema_supports_supersede():
     from pathlib import Path
     import importlib.util
@@ -54,6 +82,38 @@ def test_openai_relation_schema_supports_supersede():
     spec.loader.exec_module(module)
 
     assert "supersede" in module.RELATION_DECISION_JSON_SCHEMA["properties"]["kind"]["enum"]
+
+
+
+def test_openai_json_client_falls_back_to_chat_completions_for_compatible_apis():
+    from examples.openai_memory_clients import OpenAIExtractionClient
+
+    class FailingResponses:
+        def create(self, **kwargs):
+            raise RuntimeError("bad_response_body")
+
+    class ChatCompletions:
+        def __init__(self):
+            self.kwargs = None
+
+        def create(self, **kwargs):
+            self.kwargs = kwargs
+            message = type("Message", (), {"content": '{"should_remember": false, "memories": []}'})()
+            choice = type("Choice", (), {"message": message})()
+            return type("ChatResponse", (), {"choices": [choice]})()
+
+    class FakeClient:
+        def __init__(self):
+            self.responses = FailingResponses()
+            self.chat_completions = ChatCompletions()
+            self.chat = type("Chat", (), {"completions": self.chat_completions})()
+
+    fake_client = FakeClient()
+    result = OpenAIExtractionClient(fake_client, "gpt-5.5").complete([{"role": "user", "content": "nothing durable"}])
+
+    assert result == '{"should_remember": false, "memories": []}'
+    assert fake_client.chat_completions.kwargs["model"] == "gpt-5.5"
+    assert fake_client.chat_completions.kwargs["response_format"] == {"type": "json_object"}
 
 
 def test_llm_relation_runtime_example_runs_successfully():

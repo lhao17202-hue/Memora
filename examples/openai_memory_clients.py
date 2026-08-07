@@ -80,6 +80,12 @@ class OpenAIJSONClient:
         self.model = model
 
     def complete(self, messages: Sequence[Mapping[str, str]]) -> str:
+        try:
+            return self._complete_with_responses_api(messages)
+        except Exception:  # noqa: BLE001 - OpenAI-compatible gateways may not implement Responses JSON schema
+            return self._complete_with_chat_completions(messages)
+
+    def _complete_with_responses_api(self, messages: Sequence[Mapping[str, str]]) -> str:
         response = self.client.responses.create(
             model=self.model,
             input=_normalize_messages(messages),
@@ -94,6 +100,14 @@ class OpenAIJSONClient:
             store=False,
         )
         return response.output_text
+
+    def _complete_with_chat_completions(self, messages: Sequence[Mapping[str, str]]) -> str:
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=_normalize_messages(messages),
+            response_format={"type": "json_object"},
+        )
+        return response.choices[0].message.content
 
 
 class OpenAIExtractionClient(OpenAIJSONClient):
