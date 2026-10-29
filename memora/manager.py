@@ -14,8 +14,7 @@ from .formatter import MemoryFormatter
 from .lifecycle import LifecycleManager
 from .policy import MemoryPolicy
 from .portable import backup_memories, export_memories, import_memories, rebuild_index, verify_memories
-from .rag import RagIndex, RagRetriever, build_embedding_provider, build_reranker, build_vector_store
-from .relations import MemoryRelationJudge, SemanticMemoryRelationResolver
+from .relations import MemoryRelationJudge
 from .retriever import MemoryRetriever
 from .schema import (
     MemoryCandidate,
@@ -32,9 +31,10 @@ from .schema import (
     validate_memory_relation,
     validate_memory_relation_decision,
 )
+from .services.dependencies import build_manager_dependencies, build_memory_store
+from .services.rag_sync import RagSync
 from .session import SessionService
-from .sqlite_store import SQLiteMemoryStore
-from .stores import FileMemoryStore, FileSessionStore, MemoryCandidateStore, MemoryStore, SessionStore
+from .stores import MemoryCandidateStore, MemoryStore, SessionStore
 from .taxonomy import PINNED_CONTEXT_TYPES, configured_default_weight
 from .utils import estimate_tokens, now_utc, slugify
 from .vector_store import VectorStore
@@ -50,72 +50,53 @@ class MemoryManager:
         vector_store: VectorStore | None = None,
     ):
         self.config = config or MemoryConfig()
-        self.memory_store = memory_store or self._build_memory_store()
-        self.session_store = session_store or FileSessionStore(self.config)
+        self.retriever = MemoryRetriever()
+        dependencies = build_manager_dependencies(
+            self.config,
+            memory_store=memory_store,
+            session_store=session_store,
+            retriever=self.retriever,
+            vector_store=vector_store,
+        )
+        self.memory_store = dependencies.memory_store
+        self.session_store = dependencies.session_store
         self.session_service = SessionService(self.session_store)
         self.policy = MemoryPolicy(self.config)
-        self.retriever = MemoryRetriever()
         self.formatter = MemoryFormatter()
         self.lifecycle = LifecycleManager(self.config)
-        self.rag_index: RagIndex | None = None
-        self.rag_retriever: RagRetriever | None = None
-        self.relation_resolver: SemanticMemoryRelationResolver | None = None
+        self._rag_index = dependencies.rag_index
+        self.rag_retriever = dependencies.rag_retriever
+        self.relation_resolver = dependencies.relation_resolver
         self.relation_judge = relation_judge
-        self._rag_sync_errors: list[dict[str, str]] = []
-        embedder = None
-        relation_resolution_enabled = self.config.semantic_write_relations_enabled or self.config.llm_relation_judge_enabled
-        if self.config.rag_enabled or relation_resolution_enabled:
-            embedder = build_embedding_provider(self.config)
-        if relation_resolution_enabled and embedder is not None:
-            self.relation_resolver = SemanticMemoryRelationResolver(embedder, self.config)
-        if self.config.rag_enabled and embedder is not None:
-            resolved_vector_store = vector_store or build_vector_store(self.config)
-            reranker = build_reranker(self.config)
-            self.rag_index = RagIndex(self.memory_store, embedder, resolved_vector_store, self.config)
-            candidate_store = self.memory_store if isinstance(self.memory_store, MemoryCandidateStore) else None
-            self.rag_retriever = RagRetriever(
-                self.memory_store,
-                candidate_store,
-                embedder,
-                resolved_vector_store,
-                self.retriever,
-                reranker,
-                self.config,
-            )
+        self.rag_sync = RagSync(self._rag_index)
+        self._rag_sync_errors = self.rag_sync.errors
+
+    @property
+    def rag_index(self):
+        return self._rag_index
+
+    @rag_index.setter
+    def rag_index(self, value) -> None:
+        self._rag_index = value
+        if hasattr(self, "rag_sync"):
+            self.rag_sync.index = value
 
     def _build_memory_store(self) -> MemoryStore:
-        if self.config.memory_backend == "file":
-            return FileMemoryStore(self.config)
-        if self.config.memory_backend == "sqlite":
-            return SQLiteMemoryStore(self.config)
-        raise MemoryValidationError(f"unsupported memory backend: {self.config.memory_backend}")
+        return build_memory_store(self.config)
 
     def init_storage(self) -> None:
         self.memory_store.init_storage()
         self.session_store.init_storage()
-        if self.rag_index is not None:
-            self.rag_index.init_storage()
+        self.rag_sync.init_storage()
 
     def _record_rag_sync_error(self, operation: str, memory_id: str, exc: Exception) -> None:
-        self._rag_sync_errors.append({"operation": operation, "memory_id": memory_id, "error": str(exc)})
+        self.rag_sync.record_error(operation, memory_id, exc)
 
     def _sync_rag_memory(self, item: MemoryItem) -> None:
-        if self.rag_index is None:
-            return
-        try:
-            self.rag_index.sync_memory(item)
-        except Exception as exc:  # noqa: BLE001 - memory writes should degrade when RAG sync fails
-            self._record_rag_sync_error("sync", item.id, exc)
-            return
+        self.rag_sync.sync_memory(item)
 
     def _delete_rag_memory(self, memory_id: str) -> None:
-        if self.rag_index is None:
-            return
-        try:
-            self.rag_index.delete_memory(memory_id)
-        except Exception as exc:  # noqa: BLE001 - lifecycle writes should degrade when RAG cleanup fails
-            self._record_rag_sync_error("delete", memory_id, exc)
-            return
+        self.rag_sync.delete_memory(memory_id)
 
     def _write_result_from_decision(
         self,
@@ -238,7 +219,7 @@ class MemoryManager:
         candidate._write_diagnostics = diagnostics
 
     def _rag_sync_errors_since(self, start_index: int) -> list[dict[str, str]]:
-        return list(self._rag_sync_errors[start_index:])
+        return self.rag_sync.errors_since(start_index)
 
     def _accepted_relation_decision(self, decision: MemoryRelationDecision) -> MemoryRelationDecision:
         if decision.kind == "merge" and decision.confidence < self.config.llm_merge_confidence_threshold:
@@ -363,7 +344,7 @@ class MemoryManager:
         if decision.action == "create":
             item = self._new_memory_from_candidate(decision)
             saved = self.memory_store.save_memory(item)
-            rag_error_start = len(self._rag_sync_errors)
+            rag_error_start = self.rag_sync.mark()
             self._sync_rag_memory(saved)
             return self._write_result_from_decision(decision, memory=saved, rag_sync_errors=self._rag_sync_errors_since(rag_error_start))
         if decision.action == "update" and decision.target_memory_id:
@@ -371,14 +352,14 @@ class MemoryManager:
             if existing is None:
                 raise MemoryNotFoundError(f"memory not found: {decision.target_memory_id}")
             updated = self._apply_candidate_update(existing, decision)
-            rag_error_start = len(self._rag_sync_errors)
+            rag_error_start = self.rag_sync.mark()
             self._sync_rag_memory(updated)
             return self._write_result_from_decision(decision, memory=updated, rag_sync_errors=self._rag_sync_errors_since(rag_error_start))
         if decision.action == "supersede" and decision.target_memory_id:
             existing = self.memory_store.get_memory(decision.target_memory_id)
             if existing is None:
                 raise MemoryNotFoundError(f"memory not found: {decision.target_memory_id}")
-            rag_error_start = len(self._rag_sync_errors)
+            rag_error_start = self.rag_sync.mark()
             saved = self._supersede_memory(existing, decision)
             return self._write_result_from_decision(decision, memory=saved, rag_sync_errors=self._rag_sync_errors_since(rag_error_start))
         return self._write_result_from_decision(decision)
@@ -443,7 +424,7 @@ class MemoryManager:
             confirmed.target_memory_id = None
             item = self._new_memory_from_candidate(confirmed)
             saved = self.memory_store.save_memory(item)
-            rag_error_start = len(self._rag_sync_errors)
+            rag_error_start = self.rag_sync.mark()
             self._sync_rag_memory(saved)
             return self._write_result_from_decision(confirmed, memory=saved, rag_sync_errors=self._rag_sync_errors_since(rag_error_start))
         if confirmed.target_memory_id is None:
@@ -452,11 +433,11 @@ class MemoryManager:
         if existing is None:
             raise MemoryNotFoundError(f"memory not found: {confirmed.target_memory_id}")
         if confirmed_action == "supersede":
-            rag_error_start = len(self._rag_sync_errors)
+            rag_error_start = self.rag_sync.mark()
             saved = self._supersede_memory(existing, confirmed)
             return self._write_result_from_decision(confirmed, memory=saved, rag_sync_errors=self._rag_sync_errors_since(rag_error_start))
         updated = self._apply_candidate_update(existing, confirmed)
-        rag_error_start = len(self._rag_sync_errors)
+        rag_error_start = self.rag_sync.mark()
         self._sync_rag_memory(updated)
         return self._write_result_from_decision(confirmed, memory=updated, rag_sync_errors=self._rag_sync_errors_since(rag_error_start))
 
@@ -675,25 +656,16 @@ class MemoryManager:
     def import_memories(self, path: str | Path) -> dict:
         report = import_memories(self.memory_store, path)
         if self.rag_index is not None and report.get("imported", 0) > 0:
-            try:
-                self.rag_index.rebuild()
-            except Exception as exc:  # noqa: BLE001 - import should preserve authoritative writes when RAG rebuild fails
-                self._record_rag_sync_error("rebuild", "*", exc)
+            self.rag_sync.rebuild_for_import()
         return report
 
     def verify_memories(self) -> dict:
         report = verify_memories(self.memory_store)
-        if self.rag_index is not None:
-            report.update(self.rag_index.verify())
-            report["rag_sync_errors"] = list(self._rag_sync_errors)
-            report["vector_ok"] = report["vector_ok"] and not report["rag_sync_errors"]
-        return report
+        return self.rag_sync.add_verify_report(report)
 
     def rebuild_index(self) -> None:
         rebuild_index(self.memory_store)
-        if self.rag_index is not None:
-            self.rag_index.rebuild()
-            self._rag_sync_errors.clear()
+        self.rag_sync.rebuild()
 
     def backup(self, path: str | Path) -> dict:
         return backup_memories(self.memory_store, path)
