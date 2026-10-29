@@ -51,9 +51,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--vector-store", default=None, choices=VECTOR_STORE_CHOICES, help="Vector store for RAG.")
     parser.add_argument("--reranker", default=None, choices=RERANKER_CHOICES, help="Reranker for RAG.")
     parser.add_argument("--semantic-write-relations", action="store_true", help="Use embeddings to detect write-time duplicate, merge, and conflict relations.")
-    parser.add_argument("--semantic-relation-threshold", type=float, default=0.78, help="Minimum similarity for write-time semantic relation detection.")
-    parser.add_argument("--semantic-merge-threshold", type=float, default=0.82, help="Minimum similarity for write-time semantic merge/update decisions.")
-    parser.add_argument("--semantic-conflict-threshold", type=float, default=0.90, help="Minimum similarity before conflict evidence can affect write decisions.")
+    parser.add_argument("--semantic-relation-threshold", type=float, default=None, help="Minimum similarity for write-time semantic relation detection.")
+    parser.add_argument("--semantic-merge-threshold", type=float, default=None, help="Minimum similarity for write-time semantic merge/update decisions.")
+    parser.add_argument("--semantic-conflict-threshold", type=float, default=None, help="Minimum similarity before conflict evidence can affect write decisions.")
     parser.add_argument("--no-high-confidence-conflict-replace", action="store_true", help="Disable automatic replacement for high-confidence semantic conflicts.")
     subparsers = parser.add_subparsers(dest="command")
 

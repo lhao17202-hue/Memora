@@ -408,6 +408,28 @@ def test_cli_keyword_recall_flag_populates_config():
     assert kwargs["keyword_recall"] == "scan"
 
 
+def test_cli_preserves_env_semantic_thresholds_when_flags_are_omitted(tmp_path: Path):
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "\n".join(
+            [
+                "MEMORA_SEMANTIC_RELATION_THRESHOLD=0.21",
+                "MEMORA_SEMANTIC_MERGE_THRESHOLD=0.31",
+                "MEMORA_SEMANTIC_CONFLICT_THRESHOLD=0.41",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    parser = build_parser()
+    args = parser.parse_args(["--env-file", str(env_path), "init"])
+
+    kwargs = _config_kwargs_from_args(args)
+
+    assert kwargs["semantic_relation_threshold"] == 0.21
+    assert kwargs["semantic_merge_threshold"] == 0.31
+    assert kwargs["semantic_conflict_threshold"] == 0.41
+
+
 def test_invalid_env_config_reports_clear_cli_error_without_traceback(tmp_path: Path):
     root = tmp_path / ".memora"
     env_path = tmp_path / ".env"
