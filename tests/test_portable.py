@@ -51,6 +51,36 @@ def test_import_memories_imports_new_and_skips_duplicates(tmp_path: Path):
     assert report["errors"] == []
 
 
+def test_import_memories_allows_same_name_in_different_scope(tmp_path: Path):
+    source = manager_for(tmp_path / "source")
+    source.save_memory(
+        "preference",
+        "Alice prefers Chinese.",
+        "Alice language.",
+        name="language",
+        user_id="alice",
+    )
+    export_path = tmp_path / "memories.json"
+    source.export_memories(export_path)
+
+    target = manager_for(tmp_path / "target")
+    target.save_memory(
+        "preference",
+        "Bob prefers English.",
+        "Bob language.",
+        name="language",
+        user_id="bob",
+    )
+
+    report = target.import_memories(export_path)
+
+    assert report["imported"] == 1
+    assert report["skipped"] == 0
+    assert report["errors"] == []
+    assert target.retrieve_memory("Chinese", user_id="alice")[0].memory.user_id == "alice"
+    assert target.retrieve_memory("English", user_id="bob")[0].memory.user_id == "bob"
+
+
 def test_import_memories_reports_item_errors_and_continues(tmp_path: Path):
     manager = manager_for(tmp_path)
     path = tmp_path / "bad.json"

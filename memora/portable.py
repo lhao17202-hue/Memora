@@ -79,6 +79,10 @@ def memory_from_dict(data: dict[str, Any]) -> MemoryItem:
     return item
 
 
+def _scoped_name_key(item: MemoryItem) -> tuple[str, str, str | None, str | None]:
+    return (slugify(item.name), item.user_id, item.project_id, item.workspace_id)
+
+
 def export_memories(store: MemoryStore, path: str | Path) -> dict[str, Any]:
     items = store.list_memories(include_archived=True)
     output = {"format": EXPORT_FORMAT, "memories": [memory_to_dict(item) for item in items]}
@@ -100,7 +104,7 @@ def import_memories(store: MemoryStore, path: str | Path) -> dict[str, Any]:
 
     existing = store.list_memories(include_archived=True)
     existing_ids = {item.id for item in existing}
-    existing_names = {slugify(item.name) for item in existing}
+    existing_names = {_scoped_name_key(item) for item in existing}
     report = {"imported": 0, "skipped": 0, "errors": []}
 
     for index, raw_item in enumerate(memories):
@@ -108,12 +112,13 @@ def import_memories(store: MemoryStore, path: str | Path) -> dict[str, Any]:
             if not isinstance(raw_item, dict):
                 raise ValueError("memory entry must be an object")
             item = memory_from_dict(raw_item)
-            if item.id in existing_ids or slugify(item.name) in existing_names:
+            scoped_name = _scoped_name_key(item)
+            if item.id in existing_ids or scoped_name in existing_names:
                 report["skipped"] += 1
                 continue
             store.save_memory(item)
             existing_ids.add(item.id)
-            existing_names.add(slugify(item.name))
+            existing_names.add(scoped_name)
             report["imported"] += 1
         except Exception as exc:  # noqa: BLE001 - reports per-item import errors and continues
             report["errors"].append({"index": index, "error": str(exc)})
